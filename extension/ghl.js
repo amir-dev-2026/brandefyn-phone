@@ -5,7 +5,10 @@
 
   function current() {
     var m = location.pathname.match(/\/v2\/location\/([^/]+)\/contacts\/detail\/([^/?#]+)/);
-    return m ? { loc: m[1], id: m[2] } : null;
+    if (m) return { loc: m[1], contactId: m[2] };
+    m = location.pathname.match(/\/v2\/location\/([^/]+)\/conversations\/conversations\/([^/?#]+)/);
+    if (m) return { loc: m[1], conversationId: m[2] };
+    return null;
   }
   function toast(text) {
     if (!note) {
@@ -25,7 +28,7 @@
       var c = current(); if (!c) return;
       chrome.storage.local.get('bfnAlive', function (r) {
         var alive = r.bfnAlive && Date.now() - r.bfnAlive < 5000;
-        chrome.storage.local.set({ bfnDial: { contactId: c.id, ts: Date.now(), claimed: '' } }, function () {
+        chrome.storage.local.set({ bfnDial: { contactId: c.contactId || '', conversationId: c.conversationId || '', ts: Date.now(), claimed: '' } }, function () {
           if (alive) toast('Calling… answer happens in your Phone window.');
           else {
             window.open(location.origin + '/v2/location/' + c.loc + '/custom-page-link/' + PHONE_PAGE, 'brandefyn_phone_tab');
@@ -39,6 +42,7 @@
   setInterval(function () {
     var c = current();
     if (c && !btn) make();
+    if (btn) btn.style.bottom = c && c.conversationId ? '96px' : '24px';
     else if (!c && btn) { btn.remove(); btn = null; }
   }, 800);
 })();

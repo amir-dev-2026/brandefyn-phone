@@ -255,9 +255,9 @@
         .catch(function (e) { setStatus('Search failed: ' + (e.message || e), 'err'); });
     }, 350);
   });
-  function callContact(id) {
+  function callContact(req) {
     setStatus('Looking up contact…');
-    post('bfn-phone-lookup', { contactId: id }).then(function (j) {
+    post('bfn-phone-lookup', req).then(function (j) {
       var c = (j.contacts || [])[0];
       if (!c || !c.phone) { setStatus('This contact has no phone number', 'err'); return; }
       dialTo(c.phone, c.name);
@@ -266,7 +266,7 @@
   // "Call" button on GHL contact pages (Brandefyn Phone Chrome extension) sends this.
   window.addEventListener('message', function (e) {
     var d = e.data || {};
-    if (e.source === window && d.bfnDial && d.bfnDial.contactId) callContact(String(d.bfnDial.contactId));
+    if (e.source === window && d.bfnDial && (d.bfnDial.contactId || d.bfnDial.conversationId)) callContact(d.bfnDial.contactId ? { contactId: String(d.bfnDial.contactId) } : { conversationId: String(d.bfnDial.conversationId) });
   });
 
   // ---- Buttons ----

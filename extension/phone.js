@@ -5,14 +5,14 @@
   function beat() { try { chrome.storage.local.set({ bfnAlive: Date.now() }); } catch (e) {} }
   beat(); setInterval(beat, 2000);
   function take(req) {
-    if (!req || !req.contactId || req.claimed || Date.now() - req.ts > 60000) return;
-    chrome.storage.local.set({ bfnDial: { contactId: req.contactId, ts: req.ts, claimed: me } }, function () {
+    if (!req || !(req.contactId || req.conversationId) || req.claimed || Date.now() - req.ts > 60000) return;
+    chrome.storage.local.set({ bfnDial: { contactId: req.contactId, conversationId: req.conversationId, ts: req.ts, claimed: me } }, function () {
       setTimeout(function () {
         chrome.storage.local.get('bfnDial', function (r) {
           var d = r.bfnDial;
           if (d && d.claimed === me && d.ts === req.ts) {
             chrome.storage.local.remove('bfnDial');
-            window.postMessage({ bfnDial: { contactId: d.contactId } }, location.origin);
+            window.postMessage({ bfnDial: { contactId: d.contactId || '', conversationId: d.conversationId || '' } }, location.origin);
           }
         });
       }, 150);
