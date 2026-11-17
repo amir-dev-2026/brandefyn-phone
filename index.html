@@ -11,16 +11,29 @@
   :root { --bg:#f6f7fb; --card:#fff; --ink:#1d2433; --muted:#6b7280; --line:#e5e7eb; --brand:#2563eb; --ok:#16a34a; --bad:#dc2626; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
-  .wrap { max-width: 380px; margin: 24px auto; padding: 0 12px; }
+  .wrap { max-width: 400px; margin: 20px auto; padding: 0 12px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
   h1 { font-size:16px; margin:0 0 4px; }
-  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
-  .status { display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:14px; }
-  .dot { width:9px; height:9px; border-radius:50%; background:#9ca3af; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:12px; }
+  .me { font-size:12px; color:var(--muted); margin-bottom:10px; min-height:16px; }
+  .me b { color:var(--ink); }
+  .status { display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:12px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#9ca3af; flex:none; }
   .dot.on { background:var(--ok); } .dot.err { background:var(--bad); }
-  input { width:100%; font-size:22px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; text-align:center; letter-spacing:1px; }
+  input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:15px; }
+  #num { font-size:22px; text-align:center; letter-spacing:1px; }
+  .search { position:relative; margin-bottom:10px; }
+  .results { border:1px solid var(--line); border-radius:10px; margin-top:6px; max-height:220px; overflow:auto; display:none; }
+  .results.show { display:block; }
+  .res { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line); }
+  .res:last-child { border-bottom:0; }
+  .res .t { flex:1; min-width:0; font-size:13px; }
+  .res .t div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .res .t .s { color:var(--muted); font-size:12px; }
+  .res button { border:0; background:var(--ok); color:#fff; border-radius:8px; padding:6px 10px; font-weight:600; cursor:pointer; }
+  .res button:disabled { opacity:.45; cursor:not-allowed; }
   .pad { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin:12px 0; }
-  .pad button { font-size:20px; padding:12px 0; border:1px solid var(--line); background:#fafafa; border-radius:10px; cursor:pointer; }
+  .pad button { font-size:20px; padding:11px 0; border:1px solid var(--line); background:#fafafa; border-radius:10px; cursor:pointer; }
   .row { display:flex; gap:8px; }
   .btn { flex:1; border:0; border-radius:10px; padding:12px; font-size:15px; font-weight:600; color:#fff; cursor:pointer; }
   .call { background:var(--ok); } .hang { background:var(--bad); } .muted { background:#6b7280; } .start { background:var(--brand); }
@@ -28,7 +41,8 @@
   .incoming { display:none; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px; padding:14px; margin-bottom:12px; text-align:center; }
   .incoming.show { display:block; animation: pulse 1.2s infinite; }
   @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(22,163,74,.15); } }
-  .who { font-size:18px; font-weight:700; margin:4px 0 10px; }
+  .who { font-size:18px; font-weight:700; margin:4px 0 4px; }
+  .tag { display:inline-block; font-size:11px; background:#dbeafe; color:#1e40af; border-radius:6px; padding:2px 6px; margin-bottom:8px; }
   .timer { text-align:center; font-variant-numeric: tabular-nums; color:var(--muted); margin-top:10px; font-size:13px; min-height:18px; }
   .foot { font-size:11px; color:var(--muted); margin-top:12px; line-height:1.5; }
   a { color:var(--brand); }
@@ -39,11 +53,13 @@
   <div class="card">
     <h1>📞 Brandefyn Phone</h1>
     <div class="sub">+1 (260) 376-4031 · calls are recorded</div>
+    <div class="me" id="me"></div>
     <div class="status"><span id="dot" class="dot"></span><span id="st">Phone is off</span></div>
 
     <div id="incoming" class="incoming">
       <div>Incoming call</div>
       <div id="who" class="who">—</div>
+      <div id="mine" class="tag" style="display:none">Your contact</div>
       <div class="row">
         <button class="btn call" id="answer">Answer</button>
         <button class="btn hang" id="decline">Decline</button>
@@ -51,6 +67,11 @@
     </div>
 
     <button class="btn start" id="start" style="width:100%;margin-bottom:12px">Turn on phone</button>
+
+    <div class="search">
+      <input id="q" placeholder="Search contacts (name, company, phone)" autocomplete="off">
+      <div id="results" class="results"></div>
+    </div>
 
     <input id="num" placeholder="+1 555 123 4567" autocomplete="off">
     <div class="pad" id="pad"></div>
@@ -70,8 +91,10 @@
 <script>
 (function () {
   var KEY = new URLSearchParams(location.search).get('k') || '';
-  var TOKEN_URL = 'https://n8n.brandefyn.com/webhook/bfn-phone-token?k=' + encodeURIComponent(KEY);
+  var HOOK = 'https://n8n.brandefyn.com/webhook/';
   var device = null, call = null, pending = null, t0 = 0, tick = null, muted = false;
+  var me = { name: '', identity: '' }, ready = false, queued = null, starting = false;
+  var ssoCache = null, ssoAt = 0, popup = null;
   var $ = function (id) { return document.getElementById(id); };
   function setStatus(text, cls) { $('st').textContent = text; $('dot').className = 'dot ' + (cls || ''); }
   function norm(v) {
@@ -83,6 +106,59 @@
     if (!plus && d.length === 11 && d.charAt(0) === '1') return '+' + d;
     return '+' + d;
   }
+
+  // ---- Who is using the phone (GHL signed user context) ----
+  function askParent() {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      function onMsg(e) {
+        var d = e.data || {};
+        if (d.message === 'REQUEST_USER_DATA_RESPONSE' && d.payload) { done = true; window.removeEventListener('message', onMsg); resolve(d.payload); }
+      }
+      window.addEventListener('message', onMsg);
+      window.parent.postMessage({ message: 'REQUEST_USER_DATA' }, '*');
+      setTimeout(function () { if (!done) { window.removeEventListener('message', onMsg); reject(new Error('Open the Phone from the GHL left menu')); } }, 8000);
+    });
+  }
+  function askOpener() {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      function onMsg(e) {
+        var d = e.data || {};
+        if (e.origin === location.origin && d.bfn === 'sso' && d.payload) { done = true; window.removeEventListener('message', onMsg); resolve(d.payload); }
+      }
+      window.addEventListener('message', onMsg);
+      window.opener.postMessage({ bfn: 'sso?' }, location.origin);
+      setTimeout(function () { if (!done) { window.removeEventListener('message', onMsg); reject(new Error('Keep the GHL Phone page open, then reopen this window')); } }, 8000);
+    });
+  }
+  function getSSO() {
+    if (ssoCache && Date.now() - ssoAt < 10 * 60 * 1000) return Promise.resolve(ssoCache);
+    var p;
+    if (window.parent !== window) p = askParent();
+    else if (window.opener) p = askOpener();
+    else p = Promise.reject(new Error('Open the Phone from the GHL left menu'));
+    return p.then(function (s) { ssoCache = s; ssoAt = Date.now(); return s; });
+  }
+  // A popped-out phone window asks this (in-GHL) page for the user context.
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (e.origin === location.origin && d.bfn === 'sso?' && e.source && e.source !== window) {
+      ssoCache = null;
+      getSSO().then(function (s) { e.source.postMessage({ bfn: 'sso', payload: s }, location.origin); }).catch(function () {});
+    }
+  });
+  function post(path, body) {
+    return getSSO().then(function (sso) {
+      body.k = KEY; body.sso = sso;
+      return fetch(HOOK + path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) });
+    }).then(function (r) {
+      if (!r.ok) { ssoCache = null; throw new Error('Not authorized (' + r.status + ')'); }
+      return r.json();
+    });
+  }
+
+  // ---- Calls ----
   function startTimer() {
     t0 = Date.now(); clearInterval(tick);
     tick = setInterval(function () {
@@ -91,33 +167,38 @@
     }, 500);
   }
   function stopTimer() { clearInterval(tick); $('timer').textContent = ''; }
+  function idle() { call = null; inCall(false); stopTimer(); setStatus('Ready — receiving calls', 'on'); }
   function inCall(on) {
-    $('dial').disabled = on || !device; $('hang').disabled = !on; $('mute').disabled = !on;
+    $('dial').disabled = on || !ready; $('hang').disabled = !on; $('mute').disabled = !on;
+    var bs = document.querySelectorAll('.res button'); for (var i = 0; i < bs.length; i++) bs[i].disabled = on;
     if (!on) { muted = false; $('mute').textContent = 'Mute'; }
   }
   function wire(c) {
     call = c; inCall(true);
     c.on('accept', function () { setStatus('Connected', 'on'); startTimer(); });
-    c.on('disconnect', function () { call = null; inCall(false); stopTimer(); setStatus('Ready', 'on'); });
-    c.on('cancel', function () { call = null; inCall(false); stopTimer(); setStatus('Ready', 'on'); });
-    c.on('reject', function () { call = null; inCall(false); stopTimer(); setStatus('Ready', 'on'); });
+    c.on('disconnect', idle); c.on('cancel', idle); c.on('reject', idle);
     c.on('error', function (e) { setStatus('Call error: ' + (e.message || e), 'err'); });
   }
   function getToken() {
-    return fetch(TOKEN_URL).then(function (r) {
-      if (!r.ok) throw new Error('Not authorized (' + r.status + ')');
-      return r.json();
-    }).then(function (j) { return j.token; });
+    return post('bfn-phone-token', {}).then(function (j) {
+      me.name = j.name || ''; me.identity = j.identity || '';
+      $('me').innerHTML = 'Signed in as <b></b>'; $('me').querySelector('b').textContent = me.name;
+      return j.token;
+    });
   }
   function start() {
+    if (starting || device) return; starting = true;
     $('start').disabled = true; setStatus('Starting…');
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       s.getTracks().forEach(function (t) { t.stop(); });
       return getToken();
     }).then(function (token) {
       device = new Twilio.Device(token, { codecPreferences: ['opus', 'pcmu'], closeProtection: true, logLevel: 1 });
-      device.on('registered', function () { setStatus('Ready — receiving calls', 'on'); $('start').style.display = 'none'; inCall(false); });
-      device.on('unregistered', function () { setStatus('Phone is off', ''); });
+      device.on('registered', function () {
+        ready = true; setStatus('Ready — receiving calls', 'on'); $('start').style.display = 'none'; inCall(!!call);
+        if (queued) { var q = queued; queued = null; dialTo(q.to, q.name); }
+      });
+      device.on('unregistered', function () { ready = false; setStatus('Phone is off', ''); });
       device.on('error', function (e) { setStatus('Error: ' + (e.message || e), 'err'); });
       device.on('tokenWillExpire', function () { getToken().then(function (t) { device.updateToken(t); }); });
       device.on('incoming', function (c) {
@@ -126,16 +207,69 @@
         var name = p.get ? (p.get('name') || '') : '';
         var from = p.get ? (p.get('from') || c.parameters.From) : c.parameters.From;
         $('who').textContent = name ? (name + ' · ' + from) : from;
+        $('mine').style.display = (p.get && p.get('mine') === '1') ? 'inline-block' : 'none';
         $('incoming').className = 'incoming show';
         try { document.title = '📞 ' + ($('who').textContent); } catch (e) {}
         c.on('cancel', function () { $('incoming').className = 'incoming'; pending = null; document.title = 'Brandefyn Phone'; });
       });
+      starting = false;
       return device.register();
     }).catch(function (e) {
+      starting = false; device = null;
       setStatus((e && e.message) || 'Could not start (allow the microphone)', 'err');
       $('start').disabled = false;
     });
   }
+  function dialTo(to, name) {
+    to = norm(to);
+    if (!to || to.length < 8) { setStatus('Enter a full number with country code', 'err'); return; }
+    $('num').value = to;
+    if (call) { setStatus('Finish the current call first', 'err'); return; }
+    if (!ready) { queued = { to: to, name: name }; setStatus('Starting phone to call ' + (name || to) + '…'); start(); return; }
+    setStatus('Calling ' + (name ? name + ' · ' : '') + to + '…', 'on');
+    device.connect({ params: { To: to, By: me.name } }).then(wire).catch(function (e) { setStatus('Call failed: ' + (e.message || e), 'err'); });
+  }
+
+  // ---- Contact search / call-by-contact ----
+  var timer = null;
+  function showResults(list) {
+    var box = $('results'); box.innerHTML = '';
+    if (!list.length) { box.innerHTML = '<div class="res"><div class="t s">No contacts found</div></div>'; box.className = 'results show'; return; }
+    list.forEach(function (c) {
+      var row = document.createElement('div'); row.className = 'res';
+      var t = document.createElement('div'); t.className = 't';
+      var a = document.createElement('div'); a.textContent = c.name || c.phone || '(no name)';
+      var b = document.createElement('div'); b.className = 's'; b.textContent = [c.company, c.phone || 'no phone'].filter(Boolean).join(' · ');
+      t.appendChild(a); t.appendChild(b);
+      var btn = document.createElement('button'); btn.textContent = 'Call'; btn.disabled = !c.phone || !!call;
+      btn.onclick = function () { $('results').className = 'results'; dialTo(c.phone, c.name); };
+      row.appendChild(t); row.appendChild(btn); box.appendChild(row);
+    });
+    box.className = 'results show';
+  }
+  $('q').addEventListener('input', function () {
+    clearTimeout(timer); var v = $('q').value.trim();
+    if (v.length < 2) { $('results').className = 'results'; return; }
+    timer = setTimeout(function () {
+      post('bfn-phone-lookup', { q: v }).then(function (j) { showResults(j.contacts || []); })
+        .catch(function (e) { setStatus('Search failed: ' + (e.message || e), 'err'); });
+    }, 350);
+  });
+  function callContact(id) {
+    setStatus('Looking up contact…');
+    post('bfn-phone-lookup', { contactId: id }).then(function (j) {
+      var c = (j.contacts || [])[0];
+      if (!c || !c.phone) { setStatus('This contact has no phone number', 'err'); return; }
+      dialTo(c.phone, c.name);
+    }).catch(function (e) { setStatus('Lookup failed: ' + (e.message || e), 'err'); });
+  }
+  // "Call" button on GHL contact pages (Brandefyn Phone Chrome extension) sends this.
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (e.source === window && d.bfnDial && d.bfnDial.contactId) callContact(String(d.bfnDial.contactId));
+  });
+
+  // ---- Buttons ----
   $('start').onclick = start;
   $('answer').onclick = function () {
     if (!pending) return; var c = pending; pending = null;
@@ -146,15 +280,10 @@
     if (!pending) return; pending.reject(); pending = null;
     $('incoming').className = 'incoming'; document.title = 'Brandefyn Phone';
   };
-  $('dial').onclick = function () {
-    var to = norm($('num').value);
-    if (!to || to.length < 8) { setStatus('Enter a full number with country code', 'err'); return; }
-    $('num').value = to; setStatus('Calling ' + to + '…', 'on');
-    device.connect({ params: { To: to } }).then(wire).catch(function (e) { setStatus('Call failed: ' + (e.message || e), 'err'); });
-  };
+  $('dial').onclick = function () { dialTo($('num').value, ''); };
   $('hang').onclick = function () { if (call) call.disconnect(); };
   $('mute').onclick = function () { if (!call) return; muted = !muted; call.mute(muted); $('mute').textContent = muted ? 'Unmute' : 'Mute'; };
-  $('pop').onclick = function (e) { e.preventDefault(); window.open(location.href, 'brandefyn_phone', 'width=420,height=720'); };
+  $('pop').onclick = function (e) { e.preventDefault(); popup = window.open(location.href, 'brandefyn_phone', 'width=440,height=780'); };
   ['1','2','3','4','5','6','7','8','9','*','0','#'].forEach(function (k) {
     var b = document.createElement('button'); b.textContent = k;
     b.onclick = function () { if (call) call.sendDigits(k); else $('num').value += k; };
@@ -162,6 +291,11 @@
   });
   $('num').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !$('dial').disabled) $('dial').click(); });
   var pre = new URLSearchParams(location.search).get('to'); if (pre) $('num').value = pre;
+
+  // Turn on automatically when the microphone was already allowed.
+  try {
+    navigator.permissions.query({ name: 'microphone' }).then(function (p) { if (p.state === 'granted') start(); }).catch(function () {});
+  } catch (e) {}
 })();
 </script>
 </body>
