@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Brandefyn Phone</title>
+<script src="https://unpkg.com/@twilio/voice-sdk@2.19.0/dist/twilio.min.js"></script>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --ink:#1d2433; --muted:#6b7280; --line:#e5e7eb; --brand:#2563eb; --ok:#16a34a; --bad:#dc2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width: 380px; margin: 24px auto; padding: 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  h1 { font-size:16px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+  .status { display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:14px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#9ca3af; }
+  .dot.on { background:var(--ok); } .dot.err { background:var(--bad); }
+  input { width:100%; font-size:22px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; text-align:center; letter-spacing:1px; }
+  .pad { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin:12px 0; }
+  .pad button { font-size:20px; padding:12px 0; border:1px solid var(--line); background:#fafafa; border-radius:10px; cursor:pointer; }
+  .row { display:flex; gap:8px; }
+  .btn { flex:1; border:0; border-radius:10px; padding:12px; font-size:15px; font-weight:600; color:#fff; cursor:pointer; }
+  .call { background:var(--ok); } .hang { background:var(--bad); } .muted { background:#6b7280; } .start { background:var(--brand); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .incoming { display:none; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px; padding:14px; margin-bottom:12px; text-align:center; }
+  .incoming.show { display:block; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(22,163,74,.15); } }
+  .who { font-size:18px; font-weight:700; margin:4px 0 10px; }
+  .timer { text-align:center; font-variant-numeric: tabular-nums; color:var(--muted); margin-top:10px; font-size:13px; min-height:18px; }
+  .foot { font-size:11px; color:var(--muted); margin-top:12px; line-height:1.5; }
+  a { color:var(--brand); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>📞 Brandefyn Phone</h1>
+    <div class="sub">+1 (260) 376-4031 · calls are recorded</div>
+    <div class="status"><span id="dot" class="dot"></span><span id="st">Phone is off</span></div>
+
+    <div id="incoming" class="incoming">
+      <div>Incoming call</div>
+      <div id="who" class="who">—</div>
+      <div class="row">
+        <button class="btn call" id="answer">Answer</button>
+        <button class="btn hang" id="decline">Decline</button>
+      </div>
+    </div>
+
+    <button class="btn start" id="start" style="width:100%;margin-bottom:12px">Turn on phone</button>
+
+    <input id="num" placeholder="+1 555 123 4567" autocomplete="off">
+    <div class="pad" id="pad"></div>
+    <div class="row">
+      <button class="btn call" id="dial" disabled>Call</button>
+      <button class="btn muted" id="mute" disabled>Mute</button>
+      <button class="btn hang" id="hang" disabled>Hang up</button>
+    </div>
+    <div class="timer" id="timer"></div>
+    <div class="foot">
+      Keep this page open to receive calls. To use GHL while staying reachable,
+      <a href="#" id="pop">open the phone in its own window</a>.
+      Missed calls get an automatic text and can leave a voicemail.
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var KEY = new URLSearchParams(location.search).get('k') || '';
+  var TOKEN_URL = 'https://n8n.brandefyn.com/webhook/bfn-phone-token?k=' + encodeURIComponent(KEY);
+  var device = null, call = null, pending = null, t0 = 0, tick = null, muted = false;
+  var $ = function (id) { return document.getElementById(id); };
+  function setStatus(text, cls) { $('st').textContent = text; $('dot').className = 'dot ' + (cls || ''); }
+  function norm(v) {
+    var s = String(v || '').trim();
+    var plus = s.charAt(0) === '+';
+    var d = s.replace(/[^0-9]/g, '');
+    if (!d) return '';
+    if (!plus && d.length === 10) return '+1' + d;
+    if (!plus && d.length === 11 && d.charAt(0) === '1') return '+' + d;
+    return '+' + d;
+  }
+  function startTimer() {
+    t0 = Date.now(); clearInterval(tick);
+    tick = setInterval(function () {
+      var s = Math.floor((Date.now() - t0) / 1000);
+      $('timer').textContent = 'On call · ' + Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+    }, 500);
+  }
+  function stopTimer() { clearInterval(tick); $('timer').textContent = ''; }
+  function inCall(on) {
+    $('dial').disabled = on || !device; $('hang').disabled = !on; $('mute').disabled = !on;
+    if (!on) { muted = false; $('mute').textContent = 'Mute'; }
+  }
+  function wire(c) {
+    call = c; inCall(true);
+    c.on('accept', function () { setStatus('Connected', 'on'); startTimer(); });
+    c.on('disconnect', function () { call = null; inCall(false); stopTimer(); setStatus('Ready', 'on'); });
+    c.on('cancel', function () { call = null; inCall(false); stopTimer(); setStatus('Ready', 'on'); });
+    c.on('reject', function () { call = null; inCall(false); stopTimer(); setStatus('Ready', 'on'); });
+    c.on('error', function (e) { setStatus('Call error: ' + (e.message || e), 'err'); });
+  }
+  function getToken() {
+    return fetch(TOKEN_URL).then(function (r) {
+      if (!r.ok) throw new Error('Not authorized (' + r.status + ')');
+      return r.json();
+    }).then(function (j) { return j.token; });
+  }
+  function start() {
+    $('start').disabled = true; setStatus('Starting…');
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+      s.getTracks().forEach(function (t) { t.stop(); });
+      return getToken();
+    }).then(function (token) {
+      device = new Twilio.Device(token, { codecPreferences: ['opus', 'pcmu'], closeProtection: true, logLevel: 1 });
+      device.on('registered', function () { setStatus('Ready — receiving calls', 'on'); $('start').style.display = 'none'; inCall(false); });
+      device.on('unregistered', function () { setStatus('Phone is off', ''); });
+      device.on('error', function (e) { setStatus('Error: ' + (e.message || e), 'err'); });
+      device.on('tokenWillExpire', function () { getToken().then(function (t) { device.updateToken(t); }); });
+      device.on('incoming', function (c) {
+        pending = c;
+        var p = c.customParameters || new Map();
+        var name = p.get ? (p.get('name') || '') : '';
+        var from = p.get ? (p.get('from') || c.parameters.From) : c.parameters.From;
+        $('who').textContent = name ? (name + ' · ' + from) : from;
+        $('incoming').className = 'incoming show';
+        try { document.title = '📞 ' + ($('who').textContent); } catch (e) {}
+        c.on('cancel', function () { $('incoming').className = 'incoming'; pending = null; document.title = 'Brandefyn Phone'; });
+      });
+      return device.register();
+    }).catch(function (e) {
+      setStatus((e && e.message) || 'Could not start (allow the microphone)', 'err');
+      $('start').disabled = false;
+    });
+  }
+  $('start').onclick = start;
+  $('answer').onclick = function () {
+    if (!pending) return; var c = pending; pending = null;
+    $('incoming').className = 'incoming'; document.title = 'Brandefyn Phone';
+    wire(c); c.accept();
+  };
+  $('decline').onclick = function () {
+    if (!pending) return; pending.reject(); pending = null;
+    $('incoming').className = 'incoming'; document.title = 'Brandefyn Phone';
+  };
+  $('dial').onclick = function () {
+    var to = norm($('num').value);
+    if (!to || to.length < 8) { setStatus('Enter a full number with country code', 'err'); return; }
+    $('num').value = to; setStatus('Calling ' + to + '…', 'on');
+    device.connect({ params: { To: to } }).then(wire).catch(function (e) { setStatus('Call failed: ' + (e.message || e), 'err'); });
+  };
+  $('hang').onclick = function () { if (call) call.disconnect(); };
+  $('mute').onclick = function () { if (!call) return; muted = !muted; call.mute(muted); $('mute').textContent = muted ? 'Unmute' : 'Mute'; };
+  $('pop').onclick = function (e) { e.preventDefault(); window.open(location.href, 'brandefyn_phone', 'width=420,height=720'); };
+  ['1','2','3','4','5','6','7','8','9','*','0','#'].forEach(function (k) {
+    var b = document.createElement('button'); b.textContent = k;
+    b.onclick = function () { if (call) call.sendDigits(k); else $('num').value += k; };
+    $('pad').appendChild(b);
+  });
+  $('num').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !$('dial').disabled) $('dial').click(); });
+  var pre = new URLSearchParams(location.search).get('to'); if (pre) $('num').value = pre;
+})();
+</script>
+</body>
+</html>
