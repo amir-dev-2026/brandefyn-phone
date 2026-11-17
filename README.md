@@ -1,7 +1,8 @@
-# brandefyn-phone
+# Brandefyn Phone
 
-Browser phone (Twilio Voice JS SDK) used as the **Phone** custom page inside Brandefyn's GHL sub-account.
+Browser phone used inside GoHighLevel (left menu → **Phone**). Calls run on Brandefyn's Twilio number; the backend is n8n.
+No secrets live in this repo: the page key is only in the GHL custom page URL, and the user is identified by GHL's signed user context.
 
-- Page: `https://amir-dev-2026.github.io/brandefyn-phone/?k=<page key>` (the key is only in the GHL custom-page URL; it is not stored in this repo).
-- Tokens and call routing run in n8n (`n8n.brandefyn.com`, workflows "Brandefyn | Phone 1-8").
-- No secrets live in this repo.
+## extension/
+Chrome extension that adds a **📞 Call** button on GHL contact pages. Install: download `extension/`, open `chrome://extensions`,
+turn on **Developer mode**, click **Load unpacked**, pick the folder.
