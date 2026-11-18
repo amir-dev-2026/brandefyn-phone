@@ -335,7 +335,7 @@
       if (!list.length) box.innerHTML = '<div class="hint">None yet.</div>';
       list.forEach(function (t) {
         var d = document.createElement('div'); d.className = 'ti';
-        var tag = k === 'vm' ? (t.voice === 'rec' ? (t.rec ? ' · 🎙 your recording (' + (t.recSecs || 0) + 's)' : ' · 🎙 not recorded yet') : ' · 🤖 AI voice') : '';
+        var tag = k === 'vm' ? (t.voice === 'rec' ? (t.rec ? ' · 🎙 your recording (' + (t.recSecs || 0) + 's)' : ' · 🎙 not recorded yet') : ' · 🗣 natural AI voice') : '';
         d.innerHTML = '<div class="n">' + esc(t.name) + '<span style="font-weight:400;color:#6b7280;font-size:11px">' + tag + '</span></div>' +
           '<div class="b">' + esc(t.voice === 'rec' ? (t.body || '(recorded message)') : t.body) + '</div><div class="acts"><button class="e">Edit</button><button class="del">Delete</button></div>';
         d.querySelector('.e').onclick = function () { edit(t); };
@@ -355,14 +355,14 @@
     var ed = $('tplEd'), vm = t.kind === 'vm';
     ed.innerHTML = '<div class="ed"><b>' + (t.id ? 'Edit' : 'New') + ' ' + (vm ? 'voicemail' : 'text') + ' template</b>' +
       '<label>Name</label><input id="edName" style="font-size:14px">' +
-      (vm ? '<label>How it plays</label><select id="edVoice" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px"><option value="ai">🤖 AI voice reads the text below</option><option value="rec">🎙 My own recorded voice</option></select>' : '') +
-      '<label id="edBodyL">' + (vm ? 'Text the AI voice reads' : 'Message') + '</label><textarea id="edBody"></textarea>' +
+      (vm ? '<label>How it plays</label><select id="edVoice" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px"><option value="ai">🗣 Natural AI voice: a fresh script for each prospect</option><option value="rec">🎙 My own recorded voice</option></select>' : '') +
+      '<label id="edBodyL">' + (vm ? 'What is this voicemail about? (the idea, not the exact words)' : 'Message') + '</label><textarea id="edBody"></textarea>' +
       '<div class="row2"><button class="save" id="edSave">Save</button>' + (vm ? '<button id="edRec">🎙 Save & record now</button>' : '') + '<button id="edCancel">Cancel</button></div>' +
       (vm ? '<div class="hint">To record: click "Save & record now", wait for the beep, speak, then press Hang up.</div>' : '') + '</div>';
     $('edName').value = t.name || ''; $('edBody').value = t.body || '';
     if (vm) {
       $('edVoice').value = t.voice === 'rec' ? 'rec' : 'ai';
-      var sync = function () { var r = $('edVoice').value === 'rec'; $('edBodyL').textContent = r ? 'Notes (optional, not played)' : 'Text the AI voice reads'; $('edRec').style.display = r ? '' : 'none'; };
+      var sync = function () { var r = $('edVoice').value === 'rec'; $('edBodyL').textContent = r ? 'Notes (optional, not played)' : 'What is this voicemail about? (the idea, not the exact words)'; $('edRec').style.display = r ? '' : 'none'; };
       $('edVoice').onchange = sync; sync();
     }
     function save() {
@@ -390,11 +390,11 @@
   $('tabTpl').onclick = function () { showTab('tpl'); };
   $('newText').onclick = function () { edit({ kind: 'text' }); };
   $('newVm').onclick = function () { edit({ kind: 'vm', voice: 'ai' }); };
-  function doDrop(tid) {
+  function doDrop(tid, contactId) {
     if (!call) return Promise.resolve({ ok: false, error: 'No call in progress' });
     var sid = call.parameters && call.parameters.CallSid;
     $('vmDrop').disabled = true; setStatus('Dropping voicemail…', 'on');
-    return post('bfn-phone-vmdrop', { callSid: sid, templateId: tid, firstName: curName }).then(function (j) {
+    return post('bfn-phone-vmdrop', { callSid: sid, templateId: tid, firstName: curName, contactId: contactId || '' }).then(function (j) {
       $('vmDrop').disabled = false;
       setStatus(j.ok ? 'Voicemail is playing to them. You can call the next person.' : ('Drop failed: ' + (j.error || '')), j.ok ? 'on' : 'err');
       return j;
@@ -411,7 +411,7 @@
     return { status: st, me: me.name, to: curTo, name: curName, outgoing: outgoing, startedAt: t0, muted: muted, incoming: inc, recording: !!recording };
   }
   setInterval(function () { window.postMessage({ bfnState: state() }, location.origin); }, 700);
-  var RPC_OK = { 'bfn-phone-lookup': 1, 'bfn-phone-sms': 1, 'bfn-phone-templates': 1, 'bfn-phone-recent': 1, 'bfn-phone-result': 1, 'bfn-phone-vmsend': 1 };
+  var RPC_OK = { 'bfn-phone-lookup': 1, 'bfn-phone-sms': 1, 'bfn-phone-templates': 1, 'bfn-phone-recent': 1, 'bfn-phone-result': 1, 'bfn-phone-vmsend': 1, 'bfn-phone-vmprep': 1 };
   window.addEventListener('message', function (e) {
     var d = e.data || {};
     if (e.source !== window) return;
@@ -430,7 +430,7 @@
       else if (c.cmd === 'hangup') { if (call) call.disconnect(); else if (pending) pending.reject(); done(); }
       else if (c.cmd === 'mute') { $('mute').click(); done(); }
       else if (c.cmd === 'digits') { if (call) call.sendDigits(String(a.d || '')); done(); }
-      else if (c.cmd === 'drop') { doDrop(a.tid).then(done); }
+      else if (c.cmd === 'drop') { doDrop(a.tid, a.contactId).then(done); }
       else if (c.cmd === 'answer') { $('answer').click(); done(); }
       else if (c.cmd === 'decline') { $('decline').click(); done(); }
       else if (c.cmd === 'start') { start(); done(); }

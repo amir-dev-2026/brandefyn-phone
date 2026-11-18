@@ -38,10 +38,10 @@
       chrome.storage.onChanged.addListener(fn);
     });
   }
-  function rpc(path, body) {
+  function rpc(path, body, ms) {
     if (!alive()) return Promise.reject(new Error('The Phone is off. Open it first.'));
     var id = rid();
-    var p = wait('bfnRes', id);
+    var p = wait('bfnRes', id, ms);
     chrome.storage.local.set({ bfnReq: { id: id, path: path, body: body || {}, ts: Date.now(), claimed: '' } });
     return p.then(function (r) { if (!r.ok) throw new Error(r.error || 'Failed'); return r.data; });
   }
@@ -175,10 +175,10 @@
       kp.onclick = function () { pad.style.display = pad.style.display === 'none' ? 'grid' : 'none'; };
       box.appendChild(pad);
       if (e.outgoing && vmTpls().length) {
-        box.appendChild(el('div', 'font-size:12px;color:#6b7280;margin:12px 0 6px', 'Reached voicemail? Wait for the beep, then drop:'));
+        box.appendChild(el('div', 'font-size:12px;color:#6b7280;margin:12px 0 6px', 'Reached voicemail? Click as soon as the greeting starts (the message takes a few seconds to prepare):'));
         vmTpls().forEach(function (t) {
           var b = btn('📩 ' + t.name, '#7c3aed', '#fff', 'width:100%;margin-bottom:6px;text-align:left');
-          b.onclick = function () { b.disabled = true; b.textContent = 'Dropping…'; cmd('drop', { tid: t.id }).then(function (r) { if (r && r.ok === false) { b.disabled = false; b.textContent = '📩 ' + t.name; flash(box, r.error || 'Drop failed', true); } }); };
+          b.onclick = function () { b.disabled = true; b.textContent = 'Dropping…'; cmd('drop', { tid: t.id, contactId: contact.id }).then(function (r) { if (r && r.ok === false) { b.disabled = false; b.textContent = '📩 ' + t.name; flash(box, r.error || 'Drop failed', true); } }); };
           box.appendChild(b);
         });
       }
@@ -275,21 +275,44 @@
     body.appendChild(el('div', 'font-weight:700;margin-bottom:4px', 'Send a voicemail without talking'));
     body.appendChild(el('div', 'font-size:12px;color:#6b7280;margin-bottom:10px;line-height:1.5', 'We call ' + (contact.first || 'them') + ', wait for the voicemail beep and leave the message. If they pick up, they are connected to the team (owner first).'));
     var sel = el('select', 'width:100%;padding:9px;border:1px solid #d1d5db;border-radius:10px;font:14px ' + FONT);
-    list.forEach(function (t) { sel.appendChild(new Option((t.voice === 'rec' ? '🎙 ' : '🤖 ') + t.name, t.id)); });
+    list.forEach(function (t) { sel.appendChild(new Option((t.voice === 'rec' ? '🎙 ' : '🗣 ') + t.name, t.id)); });
     var prev = el('div', 'margin-top:8px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;padding:8px 10px;font-size:13px;color:#334155;white-space:pre-wrap');
-    function upd() { var t = list.find(function (x) { return x.id === sel.value; }) || list[0]; prev.textContent = t.voice === 'rec' ? '🎙 Recorded message (' + (t.recSecs || '?') + 's)' : '🤖 ' + fill(t.body); }
+    var player = el('div', 'margin-top:8px');
+    var ready = { aid: '', tid: '' };
+    var row = el('div', 'display:flex;gap:8px;margin-top:10px');
+    var pv = btn('▶ Preview', '#ede9fe', '#5b21b6', 'flex:1');
+    var go = btn('📩 Send voicemail now', '#7c3aed', '#fff', 'flex:2');
+    function cur() { return list.find(function (x) { return x.id === sel.value; }) || list[0]; }
+    function upd() {
+      var t = cur(); player.innerHTML = ''; ready = { aid: '', tid: '' }; pv.textContent = '▶ Preview';
+      prev.textContent = t.voice === 'rec' ? '🎙 Your recorded message (' + (t.recSecs || '?') + 's)' : '🗣 A fresh, natural script is written for ' + (contact.first || 'this contact') + ' about: ' + t.body;
+      pv.style.display = t.voice === 'rec' ? 'none' : '';
+    }
+    pv.onclick = function () {
+      var t = cur(); pv.disabled = true; pv.textContent = 'Writing…';
+      rpc('bfn-phone-vmprep', { contactId: contact.id, templateId: t.id, firstName: contact.first }, 60000).then(function (j) {
+        pv.disabled = false; pv.textContent = '▶ Preview again';
+        if (!j.ok || !j.aid) { flash(body, j.error || 'Could not prepare audio', true); return; }
+        ready = { aid: j.aid, tid: t.id };
+        prev.textContent = String(j.script || '').replace(/\[[^\]]*\]\s*/g, '');
+        player.innerHTML = ''; var au = document.createElement('audio'); au.controls = true; au.style.width = '100%';
+        au.src = 'https://n8n.brandefyn.com/webhook/bfn-vm-audio?id=' + encodeURIComponent(j.aid); player.appendChild(au); au.play().catch(function () {});
+      }).catch(function (err) { pv.disabled = false; pv.textContent = '▶ Preview'; flash(body, err.message, true); });
+    };
     sel.onchange = upd;
-    var go = btn('📩 Send voicemail now', '#7c3aed', '#fff', 'width:100%;margin-top:10px;padding:12px');
     go.disabled = !contact.phone;
     go.onclick = function () {
       if (!confirm('Call ' + (contact.name || contact.phone) + ' and leave this voicemail?')) return;
-      go.disabled = true; go.textContent = 'Starting…';
-      rpc('bfn-phone-vmsend', { contactId: contact.id, templateId: sel.value }).then(function (j) {
+      go.disabled = true; go.textContent = 'Preparing…';
+      var t = cur();
+      rpc('bfn-phone-vmsend', { contactId: contact.id, templateId: t.id, aid: ready.tid === t.id ? ready.aid : '' }, 60000).then(function (j) {
         go.disabled = false; go.textContent = '📩 Send voicemail now';
-        if (j.ok) flash(body, 'Calling now ✓ The voicemail will be left after the beep. A note is added when done.'); else flash(body, j.error || 'Could not send', true);
+        if (j.ok) flash(body, 'Calling now ✓ The voicemail will be left after the beep. A note with the script is added when done.'); else flash(body, j.error || 'Could not send', true);
       }).catch(function (err) { go.disabled = false; go.textContent = '📩 Send voicemail now'; flash(body, err.message, true); });
     };
-    body.appendChild(sel); body.appendChild(prev); body.appendChild(go); upd();
+    row.appendChild(pv); row.appendChild(go);
+    body.appendChild(sel); body.appendChild(prev); body.appendChild(player); body.appendChild(row); upd();
+    body.appendChild(el('div', 'font-size:11px;color:#6b7280;margin-top:8px', 'Preview lets you hear it first. Sending without a preview writes a new script automatically.'));
   }
   function renderRecent(body) {
     var top = el('div', 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px');
