@@ -330,7 +330,18 @@
         ready = { aid: j.aid, key: key() };
         if (sel.value !== '__own') { prev.style.display = ''; prev.textContent = String(j.script || '').replace(/\[[^\]]*\]\s*/g, ''); }
         player.innerHTML = ''; var au = document.createElement('audio'); au.controls = true; au.style.width = '100%';
-        au.src = 'https://n8n.brandefyn.com/webhook/bfn-vm-audio?id=' + encodeURIComponent(j.aid); player.appendChild(au); au.play().catch(function () {});
+        player.appendChild(el('div', 'font-size:12px;color:#6b7280', '🔊 Loading audio…'));
+        var url = 'https://n8n.brandefyn.com/webhook/bfn-vm-audio?id=' + encodeURIComponent(j.aid);
+        var tries = 0;
+        (function load() {
+          fetch(url, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); }).then(function (bl) {
+            if (bl.size < 1000) throw new Error('not ready');
+            player.innerHTML = ''; au.src = URL.createObjectURL(new Blob([bl], { type: 'audio/mpeg' })); player.appendChild(au); au.play().catch(function () {});
+          }).catch(function (err) {
+            if (++tries < 4) return setTimeout(load, 1500);
+            player.innerHTML = ''; player.appendChild(el('div', 'font-size:12px;color:#b91c1c', 'Could not load the audio (' + err.message + '). Press Preview again.'));
+          });
+        })();
       }).catch(function (err) { pv.disabled = false; pv.textContent = '▶ Preview'; flash(body, err.message, true); });
     };
     sel.onchange = upd;

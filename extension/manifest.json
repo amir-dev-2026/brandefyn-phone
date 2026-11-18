@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Brandefyn Phone panel for GHL",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Adds a Call, Text and Voicemail panel to GoHighLevel contact pages that works through the Brandefyn Phone (Twilio).",
   "permissions": [
     "storage"
