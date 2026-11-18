@@ -198,7 +198,7 @@
       $('timer').textContent = 'On call · ' + Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
     }, 500);
   }
-  function stopTimer() { clearInterval(tick); $('timer').textContent = ''; }
+  function stopTimer() { clearInterval(tick); t0 = 0; $('timer').textContent = ''; }
   function idle() {
     call = null; inCall(false); stopTimer(); $('drop').className = 'drop'; outgoing = false;
     if (recording) { recording = null; setStatus('Saving your recording…', 'on'); setTimeout(loadTemplates, 4000); setTimeout(loadTemplates, 9000); return; }
@@ -264,7 +264,7 @@
     if (call) { setStatus('Finish the current call first', 'err'); return; }
     if (!ready) { queued = { to: to, name: name }; setStatus('Starting phone to call ' + (name || to) + '…'); start(); return; }
     setStatus('Calling ' + (name ? name + ' · ' : '') + to + '…', 'on');
-    curName = name || ''; outgoing = true;
+    curName = name || ''; curTo = to; outgoing = true;
     device.connect({ params: { To: to, By: me.name } }).then(wire).catch(function (e) { setStatus('Call failed: ' + (e.message || e), 'err'); });
   }
 
@@ -390,15 +390,53 @@
   $('tabTpl').onclick = function () { showTab('tpl'); };
   $('newText').onclick = function () { edit({ kind: 'text' }); };
   $('newVm').onclick = function () { edit({ kind: 'vm', voice: 'ai' }); };
-  $('vmDrop').onclick = function () {
-    if (!call) return;
+  function doDrop(tid) {
+    if (!call) return Promise.resolve({ ok: false, error: 'No call in progress' });
     var sid = call.parameters && call.parameters.CallSid;
     $('vmDrop').disabled = true; setStatus('Dropping voicemail…', 'on');
-    post('bfn-phone-vmdrop', { callSid: sid, templateId: $('vmSel').value, firstName: curName }).then(function (j) {
+    return post('bfn-phone-vmdrop', { callSid: sid, templateId: tid, firstName: curName }).then(function (j) {
       $('vmDrop').disabled = false;
       setStatus(j.ok ? 'Voicemail is playing to them. You can call the next person.' : ('Drop failed: ' + (j.error || '')), j.ok ? 'on' : 'err');
-    }).catch(function (e) { $('vmDrop').disabled = false; setStatus('Drop failed: ' + (e.message || e), 'err'); });
-  };
+      return j;
+    }).catch(function (e) { $('vmDrop').disabled = false; setStatus('Drop failed: ' + (e.message || e), 'err'); return { ok: false, error: e.message || String(e) }; });
+  }
+  $('vmDrop').onclick = function () { doDrop($('vmSel').value); };
+
+  // ---- Remote control for the Brandefyn panel (Chrome extension) ----
+  var curTo = '';
+  function state() {
+    var st = !ready ? 'off' : (pending ? 'incoming' : (call ? (t0 ? 'connected' : 'dialing') : 'idle'));
+    var inc = '';
+    if (pending) { try { inc = $('who').textContent; } catch (e) {} }
+    return { status: st, me: me.name, to: curTo, name: curName, outgoing: outgoing, startedAt: t0, muted: muted, incoming: inc, recording: !!recording };
+  }
+  setInterval(function () { window.postMessage({ bfnState: state() }, location.origin); }, 700);
+  var RPC_OK = { 'bfn-phone-lookup': 1, 'bfn-phone-sms': 1, 'bfn-phone-templates': 1, 'bfn-phone-recent': 1, 'bfn-phone-result': 1, 'bfn-phone-vmsend': 1 };
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (e.source !== window) return;
+    if (d.bfnRpc && RPC_OK[d.bfnRpc.path]) {
+      var r = d.bfnRpc;
+      post(r.path, r.body || {}).then(function (j) {
+        if (r.path === 'bfn-phone-templates' && j.templates) { templates = j.templates; render(); publish(); }
+        window.postMessage({ bfnRpcRes: { id: r.id, ok: true, data: j } }, location.origin);
+      }).catch(function (err) {
+        window.postMessage({ bfnRpcRes: { id: r.id, ok: false, error: (err && err.message) || 'Failed' } }, location.origin);
+      });
+    }
+    if (d.bfnCmd) {
+      var c = d.bfnCmd, a = c.args || {}, done = function (res) { window.postMessage({ bfnCmdRes: { id: c.id, res: res || { ok: true } } }, location.origin); };
+      if (c.cmd === 'call') { dialTo(a.to, a.name); done(); }
+      else if (c.cmd === 'hangup') { if (call) call.disconnect(); else if (pending) pending.reject(); done(); }
+      else if (c.cmd === 'mute') { $('mute').click(); done(); }
+      else if (c.cmd === 'digits') { if (call) call.sendDigits(String(a.d || '')); done(); }
+      else if (c.cmd === 'drop') { doDrop(a.tid).then(done); }
+      else if (c.cmd === 'answer') { $('answer').click(); done(); }
+      else if (c.cmd === 'decline') { $('decline').click(); done(); }
+      else if (c.cmd === 'start') { start(); done(); }
+      else if (c.cmd === 'templates') { showTab('tpl'); done(); }
+    }
+  });
   window.addEventListener('message', function (e) { var d = e.data || {}; if (e.source === window && d.bfnOpenTemplates) showTab('tpl'); });
 
   // ---- Buttons ----
