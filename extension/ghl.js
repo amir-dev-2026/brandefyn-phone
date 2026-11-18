@@ -20,7 +20,7 @@
   function engine() {
     var best = null;
     Object.keys(engines).forEach(function (k) {
-      var s = engines[k]; if (!s || Date.now() - (s.ts || 0) > 5000) return;
+      var s = engines[k]; if (!s || Date.now() - (s.ts || 0) > 30000) return;
       var rank = { incoming: 4, connected: 3, dialing: 3, idle: 2, off: 1 }[s.status] || 0;
       if (!best || rank > best._r) best = Object.assign({ _r: rank }, s);
     });
@@ -182,7 +182,7 @@
           b.onclick = function () {
             var go = function (allow) {
               b.disabled = true; b.textContent = 'Dropping…';
-              cmd('drop', { tid: t.id, contactId: contact.id, allow: allow }).then(function (r) {
+              cmd('drop', { tid: t.id, contactId: contact.id, allow: true }).then(function (r) {
                 if (r && r.ok === false) {
                   b.disabled = false; b.textContent = '📩 ' + t.name;
                   if (!allow && String(r.error || '').indexOf('NOT_ENGAGED') === 0) {
@@ -304,7 +304,7 @@
     var pv = btn('▶ Preview', '#ede9fe', '#5b21b6', 'flex:1');
     var go = btn('📩 Send voicemail now', '#7c3aed', '#fff', 'flex:2');
     function cur() { return sel.value === '__own' ? { id: '__own', voice: 'script' } : (list.find(function (x) { return x.id === sel.value; }) || { id: '__own', voice: 'script' }); }
-    function req() { var t = cur(); var r = { contactId: contact.id, firstName: contact.first, allow: ok.checked }; if (t.id === '__own') r.script = own.value.trim(); else r.templateId = t.id; return r; }
+    function req() { var t = cur(); var r = { contactId: contact.id, firstName: contact.first, allow: true }; if (t.id === '__own') r.script = own.value.trim(); else r.templateId = t.id; return r; }
     function key() { var r = req(); return (r.templateId || '') + '|' + (r.script || ''); }
     function needOk(msg) {
       if (String(msg || '').indexOf('NOT_ENGAGED') !== 0) return false;
@@ -348,7 +348,6 @@
     go.disabled = !contact.phone;
     go.onclick = function () {
       var r = req(); if (sel.value === '__own' && !r.script) { flash(body, 'Write the script first', true); return; }
-      if (!confirm('Call ' + (contact.name || contact.phone) + ' and leave this voicemail?')) return;
       go.disabled = true; go.textContent = 'Preparing…';
       r.aid = ready.key === key() ? ready.aid : '';
       rpc('bfn-phone-vmsend', r, 60000).then(function (j) {
@@ -358,8 +357,8 @@
       }).catch(function (err) { go.disabled = false; go.textContent = '📩 Send voicemail now'; flash(body, err.message, true); });
     };
     row.appendChild(pv); row.appendChild(go);
-    body.appendChild(sel); body.appendChild(own); body.appendChild(cnt); body.appendChild(prev); body.appendChild(player); body.appendChild(okBox); body.appendChild(row); upd();
-    body.appendChild(el('div', 'font-size:11px;color:#6b7280;margin-top:8px', 'Preview lets you hear it first. 🗣 = Clara writes a fresh script · 📜 / ✍️ = Clara reads your exact words · 🎙 = your own recorded voice.'));
+    body.appendChild(sel); body.appendChild(own); body.appendChild(cnt); body.appendChild(prev); body.appendChild(player); body.appendChild(row); upd();
+    body.appendChild(el('div', 'font-size:11px;color:#6b7280;margin-top:8px', 'Preview is optional — Send works straight away. 🗣 = Clara writes a fresh script · 📜 / ✍️ = Clara reads your exact words · 🎙 = your own recorded voice.'));
   }
   function renderRecent(body) {
     var top = el('div', 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px');
@@ -412,6 +411,11 @@
     if (hit) { onEngineChange(); followDialer(); }
   });
   setInterval(onEngineChange, 3000); // notice phones that went away
+  // Background tabs slow down the Phone's heartbeat, so ask it for fresh state now and then.
+  setInterval(function () {
+    var fresh = Object.keys(engines).some(function (k) { return engines[k] && Date.now() - (engines[k].ts || 0) < 6000; });
+    if (!fresh) { try { chrome.storage.local.set({ bfnPing: Date.now() }); } catch (e) {} }
+  }, 4000);
 
   // ---------- power dialer: show the contact being dialed in this GHL tab ----------
   var followed = '';

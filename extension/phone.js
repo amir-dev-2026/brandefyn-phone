@@ -2,7 +2,7 @@
 // Relays the GHL panel's requests/commands to the page and publishes live call state.
 (function () {
   if (window.top === window && !window.opener) return; // only the real phone (inside GHL or its pop-out)
-  var me = Math.random().toString(36).slice(2), inCall = false, lastSaved = 0;
+  var me = Math.random().toString(36).slice(2), inCall = false, lastSaved = 0, lastState = null;
   var CALL_CMDS = { hangup: 1, mute: 1, digits: 1, drop: 1, answer: 1, decline: 1 };
   function save(o) { try { chrome.storage.local.set(o); } catch (e) {} }
 
@@ -17,6 +17,7 @@
     if (e.source !== window) return;
     var d = e.data || {};
     if (d.bfnState) {
+      lastState = d.bfnState;
       inCall = ['connected', 'dialing', 'incoming'].indexOf(d.bfnState.status) >= 0;
       if (Date.now() - lastSaved > 1500 || inCall) {
         lastSaved = Date.now();
@@ -51,6 +52,7 @@
     if (area !== 'local') return;
     if (ch.bfnReq && ch.bfnReq.newValue) onReq(ch.bfnReq.newValue);
     if (ch.bfnCmd && ch.bfnCmd.newValue) onCmd(ch.bfnCmd.newValue);
+    if (ch.bfnPing && lastState) { var o = {}; o['bfnState_' + me] = Object.assign({ ts: Date.now(), id: me }, lastState); save(o); }
   });
   setTimeout(function () { chrome.storage.local.get(['bfnReq', 'bfnCmd'], function (r) { onReq(r.bfnReq); onCmd(r.bfnCmd); }); }, 1500);
 })();

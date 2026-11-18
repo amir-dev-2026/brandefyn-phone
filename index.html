@@ -447,6 +447,7 @@
   $('newText').onclick = function () { edit({ kind: 'text' }); };
   $('newVm').onclick = function () { edit({ kind: 'vm', voice: 'ai' }); };
   function doDrop(tid, contactId, allow, remote) {
+    allow = true; // reps only drop voicemails on their own contacts
     if (!call) return Promise.resolve({ ok: false, error: 'No call in progress' });
     var sid = call.parameters && call.parameters.CallSid;
     $('vmDrop').disabled = true; setStatus('Dropping voicemail…', 'on');
