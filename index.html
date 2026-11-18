@@ -46,6 +46,26 @@
   .timer { text-align:center; font-variant-numeric: tabular-nums; color:var(--muted); margin-top:10px; font-size:13px; min-height:18px; }
   .foot { font-size:11px; color:var(--muted); margin-top:12px; line-height:1.5; }
   a { color:var(--brand); }
+  .tabs { display:flex; gap:6px; margin-bottom:12px; }
+  .tabs button { flex:1; border:1px solid var(--line); background:#fafafa; border-radius:8px; padding:7px; font-weight:600; cursor:pointer; }
+  .tabs button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .drop { display:none; gap:6px; margin-top:10px; }
+  .drop.show { display:flex; }
+  .drop select { flex:1; border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .drop button { border:0; background:#7c3aed; color:#fff; border-radius:8px; padding:8px 12px; font-weight:600; cursor:pointer; }
+  .tl h3 { font-size:13px; margin:14px 0 6px; display:flex; justify-content:space-between; align-items:center; }
+  .tl h3 button, .ti button, .ed button { border:0; border-radius:8px; padding:5px 10px; font-size:12px; font-weight:600; cursor:pointer; background:#eef2ff; color:#3730a3; }
+  .ti { border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:6px; }
+  .ti .n { font-weight:600; font-size:13px; }
+  .ti .b { color:var(--muted); font-size:12px; margin:3px 0 6px; white-space:pre-wrap; max-height:48px; overflow:hidden; }
+  .ti .acts { display:flex; gap:6px; }
+  .ti .del { background:#fee2e2 !important; color:#991b1b !important; }
+  .ed { border:1px solid #c7d2fe; background:#f8faff; border-radius:10px; padding:10px; margin-bottom:10px; }
+  .ed label { display:block; font-size:12px; color:var(--muted); margin:6px 0 3px; }
+  .ed textarea { width:100%; border:1px solid var(--line); border-radius:8px; padding:8px; font:14px inherit; min-height:80px; }
+  .ed .row2 { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .ed .save { background:var(--brand) !important; color:#fff !important; }
+  .hint { font-size:11px; color:var(--muted); margin-top:4px; }
 </style>
 </head>
 <body>
@@ -54,7 +74,17 @@
     <h1>📞 Brandefyn Phone</h1>
     <div class="sub">+1 (260) 376-4031 · calls are recorded</div>
     <div class="me" id="me"></div>
+    <div class="tabs"><button id="tabPhone" class="on">📞 Phone</button><button id="tabTpl">📝 Templates</button></div>
     <div class="status"><span id="dot" class="dot"></span><span id="st">Phone is off</span></div>
+    <div id="tplView" style="display:none">
+      <div id="tplEd"></div>
+      <div class="tl">
+        <h3>💬 Text templates <button id="newText">+ New</button></h3><div id="tplText"></div>
+        <h3>📩 Voicemail templates <button id="newVm">+ New</button></h3><div id="tplVm"></div>
+      </div>
+      <div class="hint">Use {{first_name}} for the contact's first name and {{my_name}} for yours. Templates are shared with the whole team.</div>
+    </div>
+    <div id="phoneView">
 
     <div id="incoming" class="incoming">
       <div>Incoming call</div>
@@ -80,11 +110,13 @@
       <button class="btn muted" id="mute" disabled>Mute</button>
       <button class="btn hang" id="hang" disabled>Hang up</button>
     </div>
+    <div class="drop" id="drop"><select id="vmSel"></select><button id="vmDrop">📩 Drop voicemail</button></div>
     <div class="timer" id="timer"></div>
     <div class="foot">
       Keep this page open to receive calls. To use GHL while staying reachable,
       <a href="#" id="pop">open the phone in its own window</a>.
       Missed calls get an automatic text and can leave a voicemail.
+    </div>
     </div>
   </div>
 </div>
@@ -94,7 +126,7 @@
   var HOOK = 'https://n8n.brandefyn.com/webhook/';
   var device = null, call = null, pending = null, t0 = 0, tick = null, muted = false;
   var me = { name: '', identity: '' }, ready = false, queued = null, starting = false;
-  var ssoCache = null, ssoAt = 0, popup = null;
+  var ssoCache = null, ssoAt = 0, popup = null, curName = '', outgoing = false, templates = [], recording = null;
   var $ = function (id) { return document.getElementById(id); };
   function setStatus(text, cls) { $('st').textContent = text; $('dot').className = 'dot ' + (cls || ''); }
   function norm(v) {
@@ -167,7 +199,11 @@
     }, 500);
   }
   function stopTimer() { clearInterval(tick); $('timer').textContent = ''; }
-  function idle() { call = null; inCall(false); stopTimer(); setStatus('Ready — receiving calls', 'on'); }
+  function idle() {
+    call = null; inCall(false); stopTimer(); $('drop').className = 'drop'; outgoing = false;
+    if (recording) { recording = null; setStatus('Saving your recording…', 'on'); setTimeout(loadTemplates, 4000); setTimeout(loadTemplates, 9000); return; }
+    setStatus('Ready — receiving calls', 'on');
+  }
   function inCall(on) {
     $('dial').disabled = on || !ready; $('hang').disabled = !on; $('mute').disabled = !on;
     var bs = document.querySelectorAll('.res button'); for (var i = 0; i < bs.length; i++) bs[i].disabled = on;
@@ -175,7 +211,7 @@
   }
   function wire(c) {
     call = c; inCall(true);
-    c.on('accept', function () { setStatus('Connected', 'on'); startTimer(); });
+    c.on('accept', function () { setStatus('Connected', 'on'); startTimer(); if (outgoing && vmList().length) $('drop').className = 'drop show'; });
     c.on('disconnect', idle); c.on('cancel', idle); c.on('reject', idle);
     c.on('error', function (e) { setStatus('Call error: ' + (e.message || e), 'err'); });
   }
@@ -197,6 +233,7 @@
       device.on('registered', function () {
         ready = true; setStatus('Ready — receiving calls', 'on'); $('start').style.display = 'none'; inCall(!!call);
         if (queued) { var q = queued; queued = null; dialTo(q.to, q.name); }
+        loadTemplates();
       });
       device.on('unregistered', function () { ready = false; setStatus('Phone is off', ''); });
       device.on('error', function (e) { setStatus('Error: ' + (e.message || e), 'err'); });
@@ -227,6 +264,7 @@
     if (call) { setStatus('Finish the current call first', 'err'); return; }
     if (!ready) { queued = { to: to, name: name }; setStatus('Starting phone to call ' + (name || to) + '…'); start(); return; }
     setStatus('Calling ' + (name ? name + ' · ' : '') + to + '…', 'on');
+    curName = name || ''; outgoing = true;
     device.connect({ params: { To: to, By: me.name } }).then(wire).catch(function (e) { setStatus('Call failed: ' + (e.message || e), 'err'); });
   }
 
@@ -282,12 +320,93 @@
     });
   });
 
+  // ---- Templates (shared, stored in n8n) ----
+  function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+  function vmList() { return templates.filter(function (t) { return t.kind === 'vm' && (t.voice !== 'rec' || t.rec); }); }
+  function publish() {
+    window.postMessage({ bfnTemplates: templates.filter(function (t) { return t.kind === 'text'; }).map(function (t) { return { id: t.id, name: t.name, body: t.body }; }) }, location.origin);
+    var sel = $('vmSel'); sel.innerHTML = '';
+    vmList().forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o); });
+  }
+  function render() {
+    ['text', 'vm'].forEach(function (k) {
+      var box = $(k === 'text' ? 'tplText' : 'tplVm'); box.innerHTML = '';
+      var list = templates.filter(function (t) { return t.kind === k; });
+      if (!list.length) box.innerHTML = '<div class="hint">None yet.</div>';
+      list.forEach(function (t) {
+        var d = document.createElement('div'); d.className = 'ti';
+        var tag = k === 'vm' ? (t.voice === 'rec' ? (t.rec ? ' · 🎙 your recording (' + (t.recSecs || 0) + 's)' : ' · 🎙 not recorded yet') : ' · 🤖 AI voice') : '';
+        d.innerHTML = '<div class="n">' + esc(t.name) + '<span style="font-weight:400;color:#6b7280;font-size:11px">' + tag + '</span></div>' +
+          '<div class="b">' + esc(t.voice === 'rec' ? (t.body || '(recorded message)') : t.body) + '</div><div class="acts"><button class="e">Edit</button><button class="del">Delete</button></div>';
+        d.querySelector('.e').onclick = function () { edit(t); };
+        d.querySelector('.del').onclick = function () {
+          if (!confirm('Delete "' + t.name + '" for the whole team?')) return;
+          post('bfn-phone-templates', { act: 'delete', id: t.id }).then(function (j) { templates = j.templates || []; render(); publish(); });
+        };
+        box.appendChild(d);
+      });
+    });
+  }
+  function loadTemplates() {
+    return post('bfn-phone-templates', { act: 'list' }).then(function (j) { templates = j.templates || []; render(); publish(); if (!call && ready) setStatus('Ready — receiving calls', 'on'); }).catch(function () {});
+  }
+  function edit(t) {
+    t = t || {};
+    var ed = $('tplEd'), vm = t.kind === 'vm';
+    ed.innerHTML = '<div class="ed"><b>' + (t.id ? 'Edit' : 'New') + ' ' + (vm ? 'voicemail' : 'text') + ' template</b>' +
+      '<label>Name</label><input id="edName" style="font-size:14px">' +
+      (vm ? '<label>How it plays</label><select id="edVoice" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px"><option value="ai">🤖 AI voice reads the text below</option><option value="rec">🎙 My own recorded voice</option></select>' : '') +
+      '<label id="edBodyL">' + (vm ? 'Text the AI voice reads' : 'Message') + '</label><textarea id="edBody"></textarea>' +
+      '<div class="row2"><button class="save" id="edSave">Save</button>' + (vm ? '<button id="edRec">🎙 Save & record now</button>' : '') + '<button id="edCancel">Cancel</button></div>' +
+      (vm ? '<div class="hint">To record: click "Save & record now", wait for the beep, speak, then press Hang up.</div>' : '') + '</div>';
+    $('edName').value = t.name || ''; $('edBody').value = t.body || '';
+    if (vm) {
+      $('edVoice').value = t.voice === 'rec' ? 'rec' : 'ai';
+      var sync = function () { var r = $('edVoice').value === 'rec'; $('edBodyL').textContent = r ? 'Notes (optional, not played)' : 'Text the AI voice reads'; $('edRec').style.display = r ? '' : 'none'; };
+      $('edVoice').onchange = sync; sync();
+    }
+    function save() {
+      var tpl = { id: t.id, kind: vm ? 'vm' : 'text', name: $('edName').value, body: $('edBody').value, voice: vm ? $('edVoice').value : undefined };
+      return post('bfn-phone-templates', { act: 'save', tpl: tpl }).then(function (j) { templates = j.templates || []; render(); publish(); return j.id; });
+    }
+    $('edSave').onclick = function () { save().then(function () { ed.innerHTML = ''; }).catch(function (e) { alert(e.message || e); }); };
+    $('edCancel').onclick = function () { ed.innerHTML = ''; };
+    if (vm) $('edRec').onclick = function () {
+      if (!ready || call) { alert('Turn the phone on (and finish any call) first.'); return; }
+      save().then(function (id) {
+        ed.innerHTML = ''; recording = id;
+        showTab('phone'); setStatus('Recording: speak after the beep, then press Hang up', 'on');
+        device.connect({ params: { Mode: 'record-vm', Tid: id, To: 'record', By: me.name } }).then(wire);
+      }).catch(function (e) { alert(e.message || e); });
+    };
+    ed.scrollIntoView({ behavior: 'smooth' });
+  }
+  function showTab(k) {
+    $('tabPhone').className = k === 'phone' ? 'on' : ''; $('tabTpl').className = k === 'tpl' ? 'on' : '';
+    $('phoneView').style.display = k === 'phone' ? '' : 'none'; $('tplView').style.display = k === 'tpl' ? '' : 'none';
+    if (k === 'tpl') loadTemplates();
+  }
+  $('tabPhone').onclick = function () { showTab('phone'); };
+  $('tabTpl').onclick = function () { showTab('tpl'); };
+  $('newText').onclick = function () { edit({ kind: 'text' }); };
+  $('newVm').onclick = function () { edit({ kind: 'vm', voice: 'ai' }); };
+  $('vmDrop').onclick = function () {
+    if (!call) return;
+    var sid = call.parameters && call.parameters.CallSid;
+    $('vmDrop').disabled = true; setStatus('Dropping voicemail…', 'on');
+    post('bfn-phone-vmdrop', { callSid: sid, templateId: $('vmSel').value, firstName: curName }).then(function (j) {
+      $('vmDrop').disabled = false;
+      setStatus(j.ok ? 'Voicemail is playing to them. You can call the next person.' : ('Drop failed: ' + (j.error || '')), j.ok ? 'on' : 'err');
+    }).catch(function (e) { $('vmDrop').disabled = false; setStatus('Drop failed: ' + (e.message || e), 'err'); });
+  };
+  window.addEventListener('message', function (e) { var d = e.data || {}; if (e.source === window && d.bfnOpenTemplates) showTab('tpl'); });
+
   // ---- Buttons ----
   $('start').onclick = start;
   $('answer').onclick = function () {
     if (!pending) return; var c = pending; pending = null;
     $('incoming').className = 'incoming'; document.title = 'Brandefyn Phone';
-    wire(c); c.accept();
+    outgoing = false; wire(c); c.accept();
   };
   $('decline').onclick = function () {
     if (!pending) return; pending.reject(); pending = null;

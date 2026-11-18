@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Brandefyn Phone – Call button for GHL",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Adds Call and Text buttons to GoHighLevel contact pages that dials through the Brandefyn Phone (Twilio).",
   "permissions": ["storage"],
   "content_scripts": [

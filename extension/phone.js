@@ -32,11 +32,13 @@
   window.addEventListener('message', function (e) {
     var d = e.data || {};
     if (e.source === window && d.bfnTextResult) chrome.storage.local.set({ bfnTextResult: Object.assign({ ts: Date.now() }, d.bfnTextResult) });
+    if (e.source === window && d.bfnTemplates) chrome.storage.local.set({ bfnTemplates: d.bfnTemplates });
   });
   chrome.storage.onChanged.addListener(function (ch, area) {
     if (area !== 'local') return;
     if (ch.bfnDial && ch.bfnDial.newValue) onDial(ch.bfnDial.newValue);
     if (ch.bfnText && ch.bfnText.newValue) onText(ch.bfnText.newValue);
+    if (ch.bfnOpenTpl && ch.bfnOpenTpl.newValue) window.postMessage({ bfnOpenTemplates: true }, location.origin);
   });
   setTimeout(function () { chrome.storage.local.get(['bfnDial', 'bfnText'], function (r) { onDial(r.bfnDial); onText(r.bfnText); }); }, 1500);
 })();

@@ -43,13 +43,29 @@
     box = document.createElement('div');
     box.style.cssText = 'position:fixed;right:24px;z-index:2147483647;width:320px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.2);padding:12px;font:13px ' + FONT;
     box.style.bottom = (parseInt(bar.style.bottom, 10) + 58) + 'px';
-    box.innerHTML = '<div style="font-weight:600;margin-bottom:6px">💬 Text this contact</div>' +
-      '<textarea rows="4" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:8px;font:14px ' + FONT + ';resize:vertical" placeholder="Type a short message…"></textarea>' +
+    box.innerHTML = '<div style="display:flex;align-items:center;margin-bottom:6px"><b style="flex:1">💬 Text this contact</b><a href="#" class="edt" style="font-size:12px;color:#2563eb">✏️ Edit templates</a></div>' +
+      '<select class="tp" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:7px;margin-bottom:6px;font:13px ' + FONT + '"><option value="">✍️ Write my own message…</option></select>' +
+      '<textarea rows="4" style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:8px;padding:8px;font:14px ' + FONT + ';resize:vertical" placeholder="Type a short message… {{first_name}} and {{my_name}} fill in automatically"></textarea>' +
       '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span class="cnt" style="flex:1;color:#6b7280;font-size:12px">0 / 160</span>' +
       '<button class="x" style="border:0;background:#f3f4f6;border-radius:8px;padding:8px 12px;cursor:pointer">Cancel</button>' +
       '<button class="s" style="border:0;background:#2563eb;color:#fff;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer">Send</button></div>';
     document.body.appendChild(box);
     var ta = box.querySelector('textarea'), cnt = box.querySelector('.cnt'), send = box.querySelector('.s');
+    var tp = box.querySelector('.tp'), tlist = [];
+    chrome.storage.local.get('bfnTemplates', function (r) {
+      tlist = r.bfnTemplates || [];
+      tlist.forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; tp.appendChild(o); });
+      if (!tlist.length) { var o = document.createElement('option'); o.disabled = true; o.textContent = '(open the Phone page to load templates)'; tp.appendChild(o); }
+    });
+    tp.onchange = function () {
+      var t = tlist.find(function (x) { return x.id === tp.value; });
+      ta.value = t ? t.body : ''; ta.dispatchEvent(new Event('input')); ta.focus();
+    };
+    box.querySelector('.edt').onclick = function (e) {
+      e.preventDefault();
+      chrome.storage.local.set({ bfnOpenTpl: Date.now() });
+      toast('Templates are in the Phone page → 📝 Templates tab (opened there if the Phone is open).');
+    };
     ta.focus();
     ta.addEventListener('input', function () {
       var n = ta.value.length; cnt.textContent = n + ' / 160' + (n > 160 ? ' · ' + Math.ceil(n / 153) + ' texts' : '');
