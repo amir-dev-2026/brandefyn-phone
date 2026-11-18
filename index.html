@@ -269,6 +269,19 @@
     if (e.source === window && d.bfnDial && (d.bfnDial.contactId || d.bfnDial.conversationId)) callContact(d.bfnDial.contactId ? { contactId: String(d.bfnDial.contactId) } : { conversationId: String(d.bfnDial.conversationId) });
   });
 
+  // "Text" from the Call/Text bar (Brandefyn Phone Chrome extension).
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (e.source !== window || !d.bfnText || !d.bfnText.message) return;
+    var t = d.bfnText, req = { message: String(t.message) };
+    if (t.contactId) req.contactId = String(t.contactId); else req.conversationId = String(t.conversationId || '');
+    post('bfn-phone-sms', req).then(function (j) {
+      window.postMessage({ bfnTextResult: { reqId: t.reqId, ok: !!j.ok, error: j.error || '' } }, location.origin);
+    }).catch(function (err) {
+      window.postMessage({ bfnTextResult: { reqId: t.reqId, ok: false, error: (err && err.message) || 'Send failed' } }, location.origin);
+    });
+  });
+
   // ---- Buttons ----
   $('start').onclick = start;
   $('answer').onclick = function () {
