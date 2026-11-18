@@ -80,10 +80,11 @@
       '</div>' +
       '<div class="bp-tabs" style="display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid #f1f5f9"></div>' +
       '<div class="bp-body" style="flex:1;overflow:auto;padding:14px 16px"></div>' +
-      '<div style="padding:8px 16px;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;font-size:12px"><a href="#" class="bp-tpl" style="color:#2563eb">✏️ Edit templates</a><a href="#" class="bp-open" style="color:#2563eb">Open Phone window</a></div>';
+      '<div style="padding:8px 16px;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;font-size:12px"><a href="#" class="bp-tpl" style="color:#2563eb">✏️ Edit templates</a><a href="#" class="bp-dial" style="color:#2563eb">⚡ Power dialer</a><a href="#" class="bp-open" style="color:#2563eb">Open Phone window</a></div>';
     document.body.appendChild(panel);
     panel.querySelector('.bp-x').onclick = closePanel;
     panel.querySelector('.bp-open').onclick = function (e) { e.preventDefault(); openPhone(); };
+    panel.querySelector('.bp-dial').onclick = function (e) { e.preventDefault(); cmd('dialer').catch(function () { openPhone(); }); };
     panel.querySelector('.bp-tpl').onclick = function (e) { e.preventDefault(); cmd('templates').catch(function () { openPhone(); }); };
     var tabs = panel.querySelector('.bp-tabs');
     [['call', '📞 Call'], ['text', '💬 Text'], ['vm', '📩 Voicemail'], ['recent', '🕘 Recent']].forEach(function (t) {
@@ -362,9 +363,21 @@
     Object.keys(ch).forEach(function (k) {
       if (k.indexOf('bfnState_') === 0) { hit = true; if (ch[k].newValue) engines[k] = ch[k].newValue; else delete engines[k]; }
     });
-    if (hit) onEngineChange();
+    if (hit) { onEngineChange(); followDialer(); }
   });
   setInterval(onEngineChange, 3000); // notice phones that went away
+
+  // ---------- power dialer: show the contact being dialed in this GHL tab ----------
+  var followed = '';
+  function followDialer() {
+    if (document.visibilityState !== 'visible') return;
+    var lm = location.pathname.match(/\/v2\/location\/([^/]+)/); if (!lm || location.pathname.indexOf('/custom-page-link/') >= 0) return; var c = { loc: lm[1] };
+    Object.keys(engines).forEach(function (k) {
+      var d = engines[k] && engines[k].dialer; if (!d || !d.contactId || d.contactId === followed) return;
+      followed = d.contactId;
+      if (location.pathname.indexOf(d.contactId) < 0) location.href = location.origin + '/v2/location/' + c.loc + '/contacts/detail/' + d.contactId;
+    });
+  }
 
   // ---------- page watcher ----------
   setInterval(function () {

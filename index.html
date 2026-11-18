@@ -66,6 +66,26 @@
   .ed .row2 { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
   .ed .save { background:var(--brand) !important; color:#fff !important; }
   .hint { font-size:11px; color:var(--muted); margin-top:4px; }
+  .dz label.ck { display:flex; align-items:center; gap:8px; font-size:13px; margin:6px 0; cursor:pointer; }
+  .dz label.ck input { width:auto; }
+  .dz .tagin { font-size:14px; padding:8px 10px; }
+  .dz .sum { font-size:12px; color:var(--muted); margin:8px 0; min-height:16px; }
+  .dz .cur { border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; display:none; }
+  .dz .cur.show { display:block; }
+  .dz .cur .nm { font-size:17px; font-weight:700; }
+  .dz .cur .co { color:var(--muted); font-size:13px; margin:2px 0 8px; }
+  .dz .nums div { font-size:13px; padding:4px 8px; border-radius:6px; margin:2px 0; display:flex; justify-content:space-between; }
+  .dz .nums .now { background:#dcfce7; font-weight:700; }
+  .dz .nums .done { color:#9ca3af; text-decoration:line-through; }
+  .dz .kind { font-size:11px; border-radius:5px; padding:1px 6px; background:#f3f4f6; color:#374151; }
+  .dz .kind.personal { background:#dbeafe; color:#1e40af; } .dz .kind.company { background:#fef3c7; color:#92400e; }
+  .dz .res3 { display:none; margin-top:8px; }
+  .dz .res3.show { display:block; }
+  .dz .res3 .opts { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .dz .res3 .opts button { border:1px solid var(--line); background:#fafafa; border-radius:8px; padding:8px; font-size:13px; cursor:pointer; }
+  .dz .res3 .opts button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .dz .res3 textarea { width:100%; border:1px solid var(--line); border-radius:8px; padding:6px; font:13px inherit; margin-top:6px; min-height:44px; }
+  .dz .log { font-size:12px; color:var(--muted); max-height:120px; overflow:auto; margin-top:8px; }
 </style>
 </head>
 <body>
@@ -74,7 +94,7 @@
     <h1>📞 Brandefyn Phone</h1>
     <div class="sub">+1 (260) 376-4031 · calls are recorded</div>
     <div class="me" id="me"></div>
-    <div class="tabs"><button id="tabPhone" class="on">📞 Phone</button><button id="tabTpl">📝 Templates</button></div>
+    <div class="tabs"><button id="tabPhone" class="on">📞 Phone</button><button id="tabDial">⚡ Dialer</button><button id="tabTpl">📝 Templates</button></div>
     <div class="status"><span id="dot" class="dot"></span><span id="st">Phone is off</span></div>
     <div id="tplView" style="display:none">
       <div id="tplEd"></div>
@@ -83,6 +103,39 @@
         <h3>📩 Voicemail templates <button id="newVm">+ New</button></h3><div id="tplVm"></div>
       </div>
       <div class="hint">Use {{first_name}} for the contact's first name and {{my_name}} for yours. Templates are shared with the whole team.</div>
+    </div>
+    <div id="dialView" class="dz" style="display:none">
+      <div id="dzSetup">
+        <label style="font-size:12px;color:var(--muted)">Call contacts with this GHL tag (empty = all contacts)</label>
+        <input id="dzTag" class="tagin" value="amazon us" autocomplete="off">
+        <label class="ck"><input type="checkbox" id="dzPersonal"> 👤 Personal numbers only (skip company lines)</label>
+        <label class="ck"><input type="checkbox" id="dzMine"> Only contacts assigned to me</label>
+        <label class="ck"><input type="checkbox" id="dzSkip" checked> Skip contacts already called (any call result)</label>
+        <label class="ck"><input type="checkbox" id="dzHours" checked> Only call 8am–9pm in the prospect's time zone</label>
+        <button class="btn start" id="dzLoad" style="width:100%;margin-top:6px">Load call list</button>
+      </div>
+      <div class="sum" id="dzSum"></div>
+      <div class="row" id="dzCtl" style="display:none">
+        <button class="btn call" id="dzGo">▶ Start</button>
+        <button class="btn muted" id="dzSkipBtn">⏭ Skip</button>
+        <button class="btn hang" id="dzStop">■ Stop</button>
+      </div>
+      <div class="cur" id="dzCur">
+        <div class="nm" id="dzName"></div>
+        <div class="co" id="dzCo"></div>
+        <div class="nums" id="dzNums"></div>
+        <div class="row" style="margin-top:8px"><button class="btn hang" id="dzHang" disabled>Hang up</button></div>
+        <div class="drop" id="dzDrop"><select id="dzVm"></select><button id="dzVmBtn">📩 Drop voicemail</button></div>
+        <div class="res3" id="dzRes">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:4px">How did it go?</div>
+          <div class="opts" id="dzOpts"></div>
+          <input type="datetime-local" id="dzCb" style="display:none;margin-top:6px;font-size:13px">
+          <textarea id="dzNote" placeholder="Note (optional)"></textarea>
+          <div class="row" style="margin-top:6px"><button class="btn start" id="dzSave">Save &amp; next</button></div>
+        </div>
+      </div>
+      <div class="log" id="dzLog"></div>
+      <div class="hint">Order per contact: personal mobiles → other numbers → company number last. One contact per brand. Unanswered numbers move on by themselves; voicemail machines count as answered so you can drop a voicemail.</div>
     </div>
     <div id="phoneView">
 
@@ -200,6 +253,7 @@
   }
   function stopTimer() { clearInterval(tick); t0 = 0; $('timer').textContent = ''; }
   function idle() {
+    var endedCall = call; setTimeout(function () { dzEnded(endedCall); }, 0);
     call = null; inCall(false); stopTimer(); $('drop').className = 'drop'; outgoing = false;
     if (recording) { recording = null; setStatus('Saving your recording…', 'on'); setTimeout(loadTemplates, 4000); setTimeout(loadTemplates, 9000); return; }
     setStatus('Ready — receiving calls', 'on');
@@ -211,7 +265,7 @@
   }
   function wire(c) {
     call = c; inCall(true);
-    c.on('accept', function () { setStatus('Connected', 'on'); startTimer(); if (outgoing && vmList().length) $('drop').className = 'drop show'; });
+    c.on('accept', function () { setStatus('Connected', 'on'); startTimer(); if (outgoing && vmList().length) $('drop').className = 'drop show'; if (dz.callObj === c) dzAnswered(); });
     c.on('disconnect', idle); c.on('cancel', idle); c.on('reject', idle);
     c.on('error', function (e) { setStatus('Call error: ' + (e.message || e), 'err'); });
   }
@@ -327,6 +381,7 @@
     window.postMessage({ bfnTemplates: templates.filter(function (t) { return t.kind === 'text'; }).map(function (t) { return { id: t.id, name: t.name, body: t.body }; }) }, location.origin);
     var sel = $('vmSel'); sel.innerHTML = '';
     vmList().forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; sel.appendChild(o); });
+    var ds = $('dzVm'); if (ds) { ds.innerHTML = ''; vmList().forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; ds.appendChild(o); }); }
   }
   function render() {
     ['text', 'vm'].forEach(function (k) {
@@ -382,12 +437,13 @@
     ed.scrollIntoView({ behavior: 'smooth' });
   }
   function showTab(k) {
-    $('tabPhone').className = k === 'phone' ? 'on' : ''; $('tabTpl').className = k === 'tpl' ? 'on' : '';
-    $('phoneView').style.display = k === 'phone' ? '' : 'none'; $('tplView').style.display = k === 'tpl' ? '' : 'none';
+    $('tabPhone').className = k === 'phone' ? 'on' : ''; $('tabTpl').className = k === 'tpl' ? 'on' : ''; $('tabDial').className = k === 'dial' ? 'on' : '';
+    $('phoneView').style.display = k === 'phone' ? '' : 'none'; $('tplView').style.display = k === 'tpl' ? '' : 'none'; $('dialView').style.display = k === 'dial' ? '' : 'none';
     if (k === 'tpl') loadTemplates();
   }
   $('tabPhone').onclick = function () { showTab('phone'); };
   $('tabTpl').onclick = function () { showTab('tpl'); };
+  $('tabDial').onclick = function () { showTab('dial'); };
   $('newText').onclick = function () { edit({ kind: 'text' }); };
   $('newVm').onclick = function () { edit({ kind: 'vm', voice: 'ai' }); };
   function doDrop(tid, contactId) {
@@ -408,10 +464,10 @@
     var st = !ready ? 'off' : (pending ? 'incoming' : (call ? (t0 ? 'connected' : 'dialing') : 'idle'));
     var inc = '';
     if (pending) { try { inc = $('who').textContent; } catch (e) {} }
-    return { status: st, me: me.name, to: curTo, name: curName, outgoing: outgoing, startedAt: t0, muted: muted, incoming: inc, recording: !!recording };
+    return { status: st, me: me.name, to: curTo, name: curName, outgoing: outgoing, startedAt: t0, muted: muted, incoming: inc, recording: !!recording, dialer: dz.running ? { contactId: dz.cur ? dz.cur.id : '', paused: dz.paused } : null };
   }
   setInterval(function () { window.postMessage({ bfnState: state() }, location.origin); }, 700);
-  var RPC_OK = { 'bfn-phone-lookup': 1, 'bfn-phone-sms': 1, 'bfn-phone-templates': 1, 'bfn-phone-recent': 1, 'bfn-phone-result': 1, 'bfn-phone-vmsend': 1, 'bfn-phone-vmprep': 1 };
+  var RPC_OK = { 'bfn-phone-lookup': 1, 'bfn-phone-sms': 1, 'bfn-phone-templates': 1, 'bfn-phone-recent': 1, 'bfn-phone-result': 1, 'bfn-phone-vmsend': 1, 'bfn-phone-vmprep': 1, 'bfn-phone-queue': 1 };
   window.addEventListener('message', function (e) {
     var d = e.data || {};
     if (e.source !== window) return;
@@ -435,9 +491,146 @@
       else if (c.cmd === 'decline') { $('decline').click(); done(); }
       else if (c.cmd === 'start') { start(); done(); }
       else if (c.cmd === 'templates') { showTab('tpl'); done(); }
+      else if (c.cmd === 'dialer') { showTab('dial'); done(); }
     }
   });
   window.addEventListener('message', function (e) { var d = e.data || {}; if (e.source === window && d.bfnOpenTemplates) showTab('tpl'); });
+
+  // ---- Power dialer ----
+  var dz = { items: [], cur: null, ni: 0, running: false, paused: false, more: false, searchAfter: null, seenPhones: [], seenDomains: [], callObj: null, answered: false, result: '', next: null, done: 0, filters: null };
+  function dzLog(t) { var d = document.createElement('div'); d.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' · ' + t; $('dzLog').insertBefore(d, $('dzLog').firstChild); }
+  function dzSum() {
+    var t = dz.items.length + ' in the list' + (dz.more ? ' (more load automatically)' : '') + ' · ' + dz.done + ' done';
+    $('dzSum').textContent = t;
+  }
+  function dzFetch() {
+    var f = dz.filters;
+    return post('bfn-phone-queue', { tag: f.tag, personalOnly: f.personal, mine: f.mine, skipCalled: f.skip, hours: f.hours, searchAfter: dz.searchAfter, seenPhones: dz.seenPhones, seenDomains: dz.seenDomains }).then(function (j) {
+      if (!j.ok) throw new Error(j.error || 'Could not load the list');
+      (j.items || []).forEach(function (it) { dz.items.push(it); it.numbers.forEach(function (n) { dz.seenPhones.push(n.n); }); if (it.domain) dz.seenDomains.push(it.domain); });
+      dz.more = !!j.more; dz.searchAfter = j.searchAfter;
+      return j;
+    });
+  }
+  function dzFill(min) {
+    // keep loading pages until we have enough contacts or nothing more (max 5 pages per go)
+    var pages = 0;
+    function step() {
+      if (dz.items.length >= min || !dz.more || pages >= 5) return Promise.resolve();
+      pages++; return dzFetch().then(step);
+    }
+    return step();
+  }
+  $('dzLoad').onclick = function () {
+    dz.filters = { tag: $('dzTag').value.trim(), personal: $('dzPersonal').checked, mine: $('dzMine').checked, skip: $('dzSkip').checked, hours: $('dzHours').checked };
+    dz.items = []; dz.searchAfter = null; dz.seenPhones = []; dz.seenDomains = []; dz.more = true; dz.done = 0;
+    $('dzLoad').disabled = true; $('dzSum').textContent = 'Loading…';
+    dzFill(20).then(function () {
+      $('dzLoad').disabled = false;
+      if (!dz.items.length) { $('dzSum').textContent = 'No contacts match these filters right now.'; $('dzCtl').style.display = 'none'; return; }
+      dzSum(); $('dzCtl').style.display = 'flex'; $('dzGo').textContent = '▶ Start'; dz.running = false; dz.paused = false;
+    }).catch(function (e) { $('dzLoad').disabled = false; $('dzSum').textContent = 'Error: ' + (e.message || e); });
+  };
+  function dzRender() {
+    var c = dz.cur; if (!c) { $('dzCur').className = 'cur'; return; }
+    $('dzCur').className = 'cur show';
+    $('dzName').textContent = c.name;
+    $('dzCo').textContent = [c.title, c.company, c.state ? (c.state + (c.local ? ' · ' + c.local + ' there' : '')) : '', c.revenue ? ('Revenue ' + c.revenue) : ''].filter(Boolean).join(' · ');
+    var box = $('dzNums'); box.innerHTML = '';
+    c.numbers.forEach(function (n, i) {
+      var d = document.createElement('div'); d.className = i < dz.ni ? 'done' : (i === dz.ni && dz.callObj ? 'now' : '');
+      d.innerHTML = '<span></span><span class="kind ' + n.kind + '">' + n.kind + '</span>'; d.firstChild.textContent = n.n; box.appendChild(d);
+    });
+  }
+  function dzNextContact() {
+    if (!dz.running) return;
+    if (!dz.items.length) {
+      if (dz.more) { $('dzSum').textContent = 'Loading more…'; dzFill(10).then(dzNextContact).catch(function (e) { dzStop('Error loading: ' + (e.message || e)); }); return; }
+      dzStop('All done — no more contacts in this list.'); return;
+    }
+    dz.cur = dz.items.shift(); dz.ni = 0; dz.answered = false; dzSum();
+    $('dzRes').className = 'res3'; $('dzDrop').className = 'drop';
+    dzDial();
+  }
+  function dzDial() {
+    if (!dz.running || dz.paused || !dz.cur) return;
+    var n = dz.cur.numbers[dz.ni];
+    if (!n) { // every number tried, nobody answered
+      var c = dz.cur; dzLog(c.name + ': no answer on ' + c.numbers.length + ' number' + (c.numbers.length > 1 ? 's' : ''));
+      post('bfn-phone-result', { contactId: c.id, result: 'noanswer', note: 'Power dialer: no answer on ' + c.numbers.map(function (x) { return x.n + ' (' + x.kind + ')'; }).join(', '), name: c.name }).catch(function () {});
+      dz.done++; dz.cur = null; dzRender(); setTimeout(dzNextContact, 1500); return;
+    }
+    if (call) { setTimeout(dzDial, 1000); return; }
+    if (!ready) { setStatus('Turn on the phone first', 'err'); start(); setTimeout(dzDial, 3000); return; }
+    curName = dz.cur.first || dz.cur.name; curTo = n.n; outgoing = true; $('num').value = n.n;
+    setStatus('Dialer: calling ' + dz.cur.name + ' · ' + n.kind + ' ' + n.n, 'on');
+    device.connect({ params: { To: n.n, By: me.name } }).then(function (c) { dz.callObj = c; wire(c); $('dzHang').disabled = false; dzRender(); })
+      .catch(function (e) { dzLog('Call failed: ' + (e.message || e)); dz.ni++; setTimeout(dzDial, 1500); });
+    dzRender();
+  }
+  function dzAnswered() {
+    dz.answered = true; dzRender();
+    if (vmList().length) $('dzDrop').className = 'drop show';
+    dzShowResult();
+  }
+  function dzEnded(c) {
+    if (!c || c !== dz.callObj) return;
+    dz.callObj = null; $('dzHang').disabled = true; $('dzDrop').className = 'drop';
+    if (!dz.running || !dz.cur) return;
+    if (dz.answered) { dzShowResult(); return; } // wait for the rep to save a result
+    dz.ni++; dzRender(); setTimeout(dzDial, 1500);
+  }
+  var DZ_OPTS = [['interested', '✅ Interested'], ['callback', '🔁 Call back'], ['noanswer', '📵 No answer / VM'], ['notinterested', '⛔ Not interested']];
+  function dzShowResult() {
+    $('dzRes').className = 'res3 show';
+    if ($('dzOpts').childNodes.length) return;
+    DZ_OPTS.forEach(function (o) {
+      var b = document.createElement('button'); b.textContent = o[1]; b.dataset.v = o[0];
+      b.onclick = function () { dz.result = o[0]; Array.prototype.forEach.call($('dzOpts').childNodes, function (x) { x.className = x === b ? 'on' : ''; }); $('dzCb').style.display = o[0] === 'callback' ? 'block' : 'none'; };
+      $('dzOpts').appendChild(b);
+    });
+  }
+  $('dzSave').onclick = function () {
+    var c = dz.cur; if (!c) return;
+    if (!dz.result) { alert('Pick a result first'); return; }
+    if (dz.result === 'callback' && !$('dzCb').value) { alert('Pick the call-back date and time'); return; }
+    if (call) call.disconnect();
+    $('dzSave').disabled = true;
+    var n = c.numbers[dz.ni] || {};
+    post('bfn-phone-result', { contactId: c.id, result: dz.result, note: ($('dzNote').value ? $('dzNote').value + ' — ' : '') + 'Power dialer, reached on ' + (n.kind || '') + ' ' + (n.n || ''), callbackAt: dz.result === 'callback' ? new Date($('dzCb').value).toISOString() : '', name: c.name })
+      .then(function () { dzLog(c.name + ': ' + dz.result); }).catch(function (e) { dzLog(c.name + ': result not saved (' + (e.message || e) + ')'); })
+      .then(function () {
+        $('dzSave').disabled = false; $('dzNote').value = ''; $('dzCb').value = ''; $('dzCb').style.display = 'none'; dz.result = '';
+        Array.prototype.forEach.call($('dzOpts').childNodes, function (x) { x.className = ''; });
+        dz.done++; dz.cur = null; dzRender();
+        if (dz.paused) { dzSum(); return; }
+        var s = 3; $('dzSum').textContent = 'Next call in ' + s + 's…';
+        clearInterval(dz.next); dz.next = setInterval(function () { s--; if (s <= 0) { clearInterval(dz.next); dz.next = null; dzNextContact(); } else $('dzSum').textContent = 'Next call in ' + s + 's…'; }, 1000);
+      });
+  };
+  $('dzVmBtn').onclick = function () { if (dz.cur) { dz.result = 'noanswer'; dzShowResult(); Array.prototype.forEach.call($('dzOpts').childNodes, function (x) { x.className = x.dataset.v === 'noanswer' ? 'on' : ''; }); doDrop($('dzVm').value, dz.cur.id); } };
+  $('dzHang').onclick = function () { if (call) call.disconnect(); };
+  function dzStop(msg) {
+    dz.running = false; dz.paused = false; clearInterval(dz.next);
+    if (dz.cur && !dz.answered) { dz.items.unshift(dz.cur); }
+    if (!dz.answered) { dz.cur = null; dzRender(); }
+    if (call && dz.callObj === call && !dz.answered) call.disconnect();
+    $('dzGo').textContent = '▶ Start'; $('dzSetup').style.display = '';
+    $('dzSum').textContent = msg || 'Stopped.'; if (msg) dzLog(msg);
+  }
+  $('dzGo').onclick = function () {
+    if (!dz.running) { dz.running = true; dz.paused = false; $('dzGo').textContent = '⏸ Pause'; $('dzSetup').style.display = 'none'; if (!ready) start(); if (dz.cur) dzDial(); else dzNextContact(); return; }
+    dz.paused = !dz.paused; $('dzGo').textContent = dz.paused ? '▶ Resume' : '⏸ Pause';
+    if (dz.paused) { clearInterval(dz.next); $('dzSum').textContent = 'Paused — the current call keeps going.'; }
+    else if (!call && !dz.cur) dzNextContact(); else if (!call && dz.cur && !dz.answered) dzDial(); else dzSum();
+  };
+  $('dzSkipBtn').onclick = function () {
+    if (!dz.running || !dz.cur) return;
+    if (dz.answered) { alert('Save a result for this contact first'); return; }
+    var c = dz.cur; dzLog(c.name + ': skipped'); dz.cur = null; dz.callObj = null;
+    if (call) call.disconnect(); dzRender(); setTimeout(dzNextContact, 800);
+  };
+  $('dzStop').onclick = function () { dzStop('Stopped.'); };
 
   // ---- Buttons ----
   $('start').onclick = start;
