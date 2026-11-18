@@ -410,14 +410,14 @@
     var ed = $('tplEd'), vm = t.kind === 'vm';
     ed.innerHTML = '<div class="ed"><b>' + (t.id ? 'Edit' : 'New') + ' ' + (vm ? 'voicemail' : 'text') + ' template</b>' +
       '<label>Name</label><input id="edName" style="font-size:14px">' +
-      (vm ? '<label>How it plays</label><select id="edVoice" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px"><option value="ai">🗣 Natural AI voice: a fresh script for each prospect</option><option value="rec">🎙 My own recorded voice</option></select>' : '') +
+      (vm ? '<label>How it plays</label><select id="edVoice" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px"><option value="ai">🗣 Clara writes a fresh script for each prospect</option><option value="script">📜 Clara reads my exact words</option><option value="rec">🎙 My own recorded voice</option></select>' : '') +
       '<label id="edBodyL">' + (vm ? 'What is this voicemail about? (the idea, not the exact words)' : 'Message') + '</label><textarea id="edBody"></textarea>' +
       '<div class="row2"><button class="save" id="edSave">Save</button>' + (vm ? '<button id="edRec">🎙 Save & record now</button>' : '') + '<button id="edCancel">Cancel</button></div>' +
       (vm ? '<div class="hint">To record: click "Save & record now", wait for the beep, speak, then press Hang up.</div>' : '') + '</div>';
     $('edName').value = t.name || ''; $('edBody').value = t.body || '';
     if (vm) {
-      $('edVoice').value = t.voice === 'rec' ? 'rec' : 'ai';
-      var sync = function () { var r = $('edVoice').value === 'rec'; $('edBodyL').textContent = r ? 'Notes (optional, not played)' : 'What is this voicemail about? (the idea, not the exact words)'; $('edRec').style.display = r ? '' : 'none'; };
+      $('edVoice').value = ['rec', 'script'].indexOf(t.voice) >= 0 ? t.voice : 'ai';
+      var sync = function () { var v = $('edVoice').value, r = v === 'rec'; $('edBodyL').textContent = r ? 'Notes (optional, not played)' : v === 'script' ? 'Exact words Clara says (use {{first_name}}, keep it under ~60 words)' : 'What is this voicemail about? (the idea, not the exact words)'; $('edRec').style.display = r ? '' : 'none'; };
       $('edVoice').onchange = sync; sync();
     }
     function save() {
@@ -446,12 +446,14 @@
   $('tabDial').onclick = function () { showTab('dial'); };
   $('newText').onclick = function () { edit({ kind: 'text' }); };
   $('newVm').onclick = function () { edit({ kind: 'vm', voice: 'ai' }); };
-  function doDrop(tid, contactId) {
+  function doDrop(tid, contactId, allow, remote) {
     if (!call) return Promise.resolve({ ok: false, error: 'No call in progress' });
     var sid = call.parameters && call.parameters.CallSid;
     $('vmDrop').disabled = true; setStatus('Dropping voicemail…', 'on');
-    return post('bfn-phone-vmdrop', { callSid: sid, templateId: tid, firstName: curName, contactId: contactId || '' }).then(function (j) {
+    return post('bfn-phone-vmdrop', { callSid: sid, templateId: tid, firstName: curName, contactId: contactId || '', allow: !!allow }).then(function (j) {
       $('vmDrop').disabled = false;
+      if (!j.ok && !allow && !remote && String(j.error || '').indexOf('NOT_ENGAGED') === 0 && confirm((curName || 'This contact') + ' has no reply on record.\n\nDid they reply to us or ask us to call? Press OK to allow voicemails for them and drop it now.')) return doDrop(tid, contactId, true, remote);
+      if (!j.ok && String(j.error || '').indexOf('NOT_ENGAGED') === 0) j.error = 'Not sent: no reply on record for this contact';
       setStatus(j.ok ? 'Voicemail is playing to them. You can call the next person.' : ('Drop failed: ' + (j.error || '')), j.ok ? 'on' : 'err');
       return j;
     }).catch(function (e) { $('vmDrop').disabled = false; setStatus('Drop failed: ' + (e.message || e), 'err'); return { ok: false, error: e.message || String(e) }; });
@@ -486,7 +488,7 @@
       else if (c.cmd === 'hangup') { if (call) call.disconnect(); else if (pending) pending.reject(); done(); }
       else if (c.cmd === 'mute') { $('mute').click(); done(); }
       else if (c.cmd === 'digits') { if (call) call.sendDigits(String(a.d || '')); done(); }
-      else if (c.cmd === 'drop') { doDrop(a.tid, a.contactId).then(done); }
+      else if (c.cmd === 'drop') { doDrop(a.tid, a.contactId, a.allow, true).then(done); }
       else if (c.cmd === 'answer') { $('answer').click(); done(); }
       else if (c.cmd === 'decline') { $('decline').click(); done(); }
       else if (c.cmd === 'start') { start(); done(); }
@@ -608,7 +610,7 @@
         clearInterval(dz.next); dz.next = setInterval(function () { s--; if (s <= 0) { clearInterval(dz.next); dz.next = null; dzNextContact(); } else $('dzSum').textContent = 'Next call in ' + s + 's…'; }, 1000);
       });
   };
-  $('dzVmBtn').onclick = function () { if (dz.cur) { dz.result = 'noanswer'; dzShowResult(); Array.prototype.forEach.call($('dzOpts').childNodes, function (x) { x.className = x.dataset.v === 'noanswer' ? 'on' : ''; }); doDrop($('dzVm').value, dz.cur.id); } };
+  $('dzVmBtn').onclick = function () { if (dz.cur) { dz.result = 'noanswer'; dzShowResult(); Array.prototype.forEach.call($('dzOpts').childNodes, function (x) { x.className = x.dataset.v === 'noanswer' ? 'on' : ''; }); var nm = dz.cur.name; doDrop($('dzVm').value, dz.cur.id).then(function (j) { dzLog(nm + ': ' + (j && j.ok ? 'voicemail dropped ✓' : 'voicemail NOT sent — ' + ((j && j.error) || 'error'))); }); } };
   $('dzHang').onclick = function () { if (call) call.disconnect(); };
   function dzStop(msg) {
     dz.running = false; dz.paused = false; clearInterval(dz.next);

@@ -179,7 +179,20 @@
         box.appendChild(el('div', 'font-size:12px;color:#6b7280;margin:12px 0 6px', 'Reached voicemail? Click as soon as the greeting starts (the message takes a few seconds to prepare):'));
         vmTpls().forEach(function (t) {
           var b = btn('📩 ' + t.name, '#7c3aed', '#fff', 'width:100%;margin-bottom:6px;text-align:left');
-          b.onclick = function () { b.disabled = true; b.textContent = 'Dropping…'; cmd('drop', { tid: t.id, contactId: contact.id }).then(function (r) { if (r && r.ok === false) { b.disabled = false; b.textContent = '📩 ' + t.name; flash(box, r.error || 'Drop failed', true); } }); };
+          b.onclick = function () {
+            var go = function (allow) {
+              b.disabled = true; b.textContent = 'Dropping…';
+              cmd('drop', { tid: t.id, contactId: contact.id, allow: allow }).then(function (r) {
+                if (r && r.ok === false) {
+                  b.disabled = false; b.textContent = '📩 ' + t.name;
+                  if (!allow && String(r.error || '').indexOf('NOT_ENGAGED') === 0) {
+                    if (confirm((contact.first || 'This contact') + ' has no reply on record.\n\nDid they reply to us or ask us to call? Press OK to allow voicemails for them and drop it now.')) go(true);
+                  } else flash(box, r.error || 'Drop failed', true);
+                }
+              });
+            };
+            go(false);
+          };
           box.appendChild(b);
         });
       }
@@ -272,30 +285,50 @@
       body.appendChild(el('div', 'background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:10px;font-size:13px;margin-bottom:12px', 'You are on a call. To leave a voicemail on this call, use the 📩 drop buttons in the Call tab after the beep.'));
     }
     var list = vmTpls();
-    if (!list.length) { body.appendChild(el('div', 'color:#6b7280', 'No voicemail templates yet. Click "✏️ Edit templates" below to add one.')); return; }
     body.appendChild(el('div', 'font-weight:700;margin-bottom:4px', 'Send a voicemail without talking'));
     body.appendChild(el('div', 'font-size:12px;color:#6b7280;margin-bottom:10px;line-height:1.5', 'We call ' + (contact.first || 'them') + ', wait for the voicemail beep and leave the message. If they pick up, they are connected to the team (owner first).'));
     var sel = el('select', 'width:100%;padding:9px;border:1px solid #d1d5db;border-radius:10px;font:14px ' + FONT);
-    list.forEach(function (t) { sel.appendChild(new Option((t.voice === 'rec' ? '🎙 ' : '🗣 ') + t.name, t.id)); });
+    sel.appendChild(new Option('✍️ Write my own script (Clara reads it)', '__own'));
+    list.forEach(function (t) { sel.appendChild(new Option((t.voice === 'rec' ? '🎙 ' : t.voice === 'script' ? '📜 ' : '🗣 ') + t.name, t.id)); });
+    if (list.length) sel.value = list[0].id;
+    var own = el('textarea', 'display:none;width:100%;margin-top:8px;min-height:90px;border:1px solid #d1d5db;border-radius:10px;padding:8px;font:13px ' + FONT + ';box-sizing:border-box');
+    own.placeholder = 'Hey {{first_name}}, it\'s Clara from Brandefyn. Thanks for getting back to me, um, give me a quick call back at two-six-oh, three-seven-six, four-oh-three-one. Talk soon.';
+    var cnt = el('div', 'display:none;font-size:11px;color:#6b7280;text-align:right', '');
     var prev = el('div', 'margin-top:8px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;padding:8px 10px;font-size:13px;color:#334155;white-space:pre-wrap');
     var player = el('div', 'margin-top:8px');
-    var ready = { aid: '', tid: '' };
+    var okBox = el('label', 'display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:12px;color:#334155;cursor:pointer;line-height:1.4;padding:6px;border-radius:8px');
+    var ok = document.createElement('input'); ok.type = 'checkbox'; ok.style.marginTop = '2px';
+    okBox.appendChild(ok); okBox.appendChild(el('span', '', '✅ ' + (contact.first || 'They') + ' replied to us or asked us to call (email, LinkedIn, phone…). Allow voicemails for this contact.'));
+    var ready = { aid: '', key: '' };
     var row = el('div', 'display:flex;gap:8px;margin-top:10px');
     var pv = btn('▶ Preview', '#ede9fe', '#5b21b6', 'flex:1');
     var go = btn('📩 Send voicemail now', '#7c3aed', '#fff', 'flex:2');
-    function cur() { return list.find(function (x) { return x.id === sel.value; }) || list[0]; }
+    function cur() { return sel.value === '__own' ? { id: '__own', voice: 'script' } : (list.find(function (x) { return x.id === sel.value; }) || { id: '__own', voice: 'script' }); }
+    function req() { var t = cur(); var r = { contactId: contact.id, firstName: contact.first, allow: ok.checked }; if (t.id === '__own') r.script = own.value.trim(); else r.templateId = t.id; return r; }
+    function key() { var r = req(); return (r.templateId || '') + '|' + (r.script || ''); }
+    function needOk(msg) {
+      if (String(msg || '').indexOf('NOT_ENGAGED') !== 0) return false;
+      okBox.style.background = '#fef3c7';
+      flash(body, 'No reply on record for ' + (contact.first || 'this contact') + '. If they replied or asked you to call, tick the ✅ box and try again.', true);
+      return true;
+    }
     function upd() {
-      var t = cur(); player.innerHTML = ''; ready = { aid: '', tid: '' }; pv.textContent = '▶ Preview';
-      prev.textContent = t.voice === 'rec' ? '🎙 Your recorded message (' + (t.recSecs || '?') + 's)' : '🗣 A fresh, natural script is written for ' + (contact.first || 'this contact') + ' about: ' + t.body;
+      var t = cur(); player.innerHTML = ''; ready = { aid: '', key: '' }; pv.textContent = '▶ Preview';
+      var isOwn = t.id === '__own'; own.style.display = isOwn ? 'block' : 'none'; cnt.style.display = isOwn ? 'block' : 'none';
+      prev.style.display = isOwn ? 'none' : '';
+      prev.textContent = t.voice === 'rec' ? '🎙 Your recorded message (' + (t.recSecs || '?') + 's)' : t.voice === 'script' ? '📜 Clara reads these exact words: ' + t.body : '🗣 A fresh, natural script is written for ' + (contact.first || 'this contact') + ' about: ' + t.body;
       pv.style.display = t.voice === 'rec' ? 'none' : '';
     }
+    own.oninput = function () { ready = { aid: '', key: '' }; player.innerHTML = ''; cnt.textContent = own.value.length + ' / 900 · use {{first_name}} for their name · keep it under ~60 words'; };
+    ok.onchange = function () { okBox.style.background = ''; };
     pv.onclick = function () {
-      var t = cur(); pv.disabled = true; pv.textContent = 'Writing…';
-      rpc('bfn-phone-vmprep', { contactId: contact.id, templateId: t.id, firstName: contact.first }, 60000).then(function (j) {
+      var r = req(); if (sel.value === '__own' && !r.script) { flash(body, 'Write the script first', true); return; }
+      pv.disabled = true; pv.textContent = sel.value === '__own' ? 'Recording Clara…' : 'Writing…';
+      rpc('bfn-phone-vmprep', r, 60000).then(function (j) {
         pv.disabled = false; pv.textContent = '▶ Preview again';
-        if (!j.ok || !j.aid) { flash(body, j.error || 'Could not prepare audio', true); return; }
-        ready = { aid: j.aid, tid: t.id };
-        prev.textContent = String(j.script || '').replace(/\[[^\]]*\]\s*/g, '');
+        if (!j.ok || !j.aid) { if (!needOk(j.error)) flash(body, j.error || 'Could not prepare audio', true); return; }
+        ready = { aid: j.aid, key: key() };
+        if (sel.value !== '__own') { prev.style.display = ''; prev.textContent = String(j.script || '').replace(/\[[^\]]*\]\s*/g, ''); }
         player.innerHTML = ''; var au = document.createElement('audio'); au.controls = true; au.style.width = '100%';
         au.src = 'https://n8n.brandefyn.com/webhook/bfn-vm-audio?id=' + encodeURIComponent(j.aid); player.appendChild(au); au.play().catch(function () {});
       }).catch(function (err) { pv.disabled = false; pv.textContent = '▶ Preview'; flash(body, err.message, true); });
@@ -303,17 +336,19 @@
     sel.onchange = upd;
     go.disabled = !contact.phone;
     go.onclick = function () {
+      var r = req(); if (sel.value === '__own' && !r.script) { flash(body, 'Write the script first', true); return; }
       if (!confirm('Call ' + (contact.name || contact.phone) + ' and leave this voicemail?')) return;
       go.disabled = true; go.textContent = 'Preparing…';
-      var t = cur();
-      rpc('bfn-phone-vmsend', { contactId: contact.id, templateId: t.id, aid: ready.tid === t.id ? ready.aid : '' }, 60000).then(function (j) {
+      r.aid = ready.key === key() ? ready.aid : '';
+      rpc('bfn-phone-vmsend', r, 60000).then(function (j) {
         go.disabled = false; go.textContent = '📩 Send voicemail now';
-        if (j.ok) flash(body, 'Calling now ✓ The voicemail will be left after the beep. A note with the script is added when done.'); else flash(body, j.error || 'Could not send', true);
+        if (j.ok) flash(body, 'Calling now ✓ The voicemail will be left after the beep. A note with the script is added when done.');
+        else if (!needOk(j.error)) flash(body, j.error || 'Could not send', true);
       }).catch(function (err) { go.disabled = false; go.textContent = '📩 Send voicemail now'; flash(body, err.message, true); });
     };
     row.appendChild(pv); row.appendChild(go);
-    body.appendChild(sel); body.appendChild(prev); body.appendChild(player); body.appendChild(row); upd();
-    body.appendChild(el('div', 'font-size:11px;color:#6b7280;margin-top:8px', 'Preview lets you hear it first. Sending without a preview writes a new script automatically.'));
+    body.appendChild(sel); body.appendChild(own); body.appendChild(cnt); body.appendChild(prev); body.appendChild(player); body.appendChild(okBox); body.appendChild(row); upd();
+    body.appendChild(el('div', 'font-size:11px;color:#6b7280;margin-top:8px', 'Preview lets you hear it first. 🗣 = Clara writes a fresh script · 📜 / ✍️ = Clara reads your exact words · 🎙 = your own recorded voice.'));
   }
   function renderRecent(body) {
     var top = el('div', 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px');
